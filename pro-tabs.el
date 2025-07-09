@@ -64,11 +64,11 @@
 
 (defface pro-tabs-inactive-face
   ;; Цвет будет переустанавливаться динамически
-  '((t :inherit default :background "grey"))
+  '((t :inherit default :background "grey30"))
   "Face for inactive tab (both tab-bar and tab-line): a bit lighter than the darkest possible tab-bar color." :group 'pro-tabs)
 
 (defface pro-tabs-face
-  '((t :background "DarkGrey" :inherit default))
+  '((t :background "grey20" :inherit default))
   "Face for tab-line background (the empty track behind tabs)."  :group 'pro-tabs)
 
 (defun pro-tabs--inherit-builtins ()

@@ -41,6 +41,12 @@
   :group 'convenience
   :prefix "pro-tabs-")
 
+(defface pro-tabs-active-tab
+  `((t :inherit tab-bar-tab-inactive
+       :background ,(face-attribute 'default :background nil 'default)))
+  "Face for active tab in pro-tabs tab-bar, matches frame background."
+  :group 'pro-tabs)
+
 (defcustom pro-tabs-enable-icons t
   "Whether to show icons in tab-bar and tab-line."
   :type 'boolean
@@ -56,7 +62,7 @@
   :type 'integer
   :group 'pro-tabs)
 
-(defcustom pro-tabs-tab-line-height 21
+(defcustom pro-tabs-tab-line-height 20
   "Height (in pixels) for pro-tabs tab-line formatting."
   :type 'integer
   :group 'pro-tabs)
@@ -259,7 +265,9 @@ Second arg I is the tab index (unused). Never mutates global state."
          (tab-name-length pro-tabs-max-tab-name-length)
          (current-tab? (eq (car tab) 'current-tab))
          (buffer-name (substring-no-properties (alist-get 'name tab)))
-         (tab-face (if current-tab? 'tab-bar-tab 'tab-bar-tab-inactive))
+         (tab-face (if current-tab?
+                       'pro-tabs-active-tab
+                     'tab-bar-tab-inactive))
          (wave-right (propertize " " 'display
                                  (pro-tabs--wave-right
                                   tab-face
@@ -313,7 +321,9 @@ Second arg I is the tab index (unused). Never mutates global state."
   "Return formatted display for BUFFER for use with `tab-line-tab-name-function`.
 Shows a wave separator left/right, plus an icon (like pro-tabs-format-tab-bar). Pure function."
   (let* ((is-current (eq buffer (window-buffer)))
-         (face-tab (if is-current 'tab-line-tab-current 'tab-line-tab-inactive))
+         (face-tab (if is-current
+                       (list 'tab-line-tab-current :height 1.0 :weight 'normal)
+                     'tab-line-tab-inactive))
          (bname (buffer-name buffer))
          (icon (pro-tabs--tab-icon buffer 'tab-line))
          (wave-right (propertize " " 'display (pro-tabs--wave-right nil 'tab-line (+ 1 pro-tabs-tab-line-height))))

@@ -341,6 +341,42 @@ Shows a wave separator left/right, plus an icon (like pro-tabs-format-tab-bar). 
   (kill-this-buffer)
   (tab-close))
 
+;;; Keybindings for tab-line contextual cycling (C-<tab> / C-S-<tab>)
+(defvar pro-tabs-tab-line-keys-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "C-<tab>") #'tab-line-switch-to-next-tab)
+    (define-key map (kbd "C-S-<iso-lefttab>") #'tab-line-switch-to-prev-tab)
+    (define-key map (kbd "s-<tab>") #'tab-line-switch-to-next-tab)
+    (define-key map (kbd "s-S-<iso-lefttab>") #'tab-line-switch-to-prev-tab)
+    (define-key map (kbd "s-n") #'tab-line-switch-to-next-tab)
+    (define-key map (kbd "s-p") #'tab-line-switch-to-prev-tab)
+    map)
+  "Keymap for tab-line tab cycling with C-<tab> / C-S-<tab>.")
+
+;;;###autoload
+(define-minor-mode pro-tabs-tab-line-keys-mode
+  "Minor mode for `pro-tabs' that binds Ctrl+Tab and Ctrl+Shift+Tab to tab-line tab cycling."
+  :lighter ""
+  :keymap pro-tabs-tab-line-keys-mode-map
+  (when (and pro-tabs-tab-line-keys-mode (not tab-line-mode))
+    ;; Auto-disable in buffers without tab-line-mode
+    (pro-tabs-tab-line-keys-mode -1)))
+
+(defun pro-tabs--maybe-enable-tab-line-keys ()
+  "Enable pro-tabs-tab-line-keys-mode if tab-line-mode is active in the current buffer."
+  (if tab-line-mode
+      (pro-tabs-tab-line-keys-mode 1)
+    (pro-tabs-tab-line-keys-mode -1)))
+
+;;;###autoload
+(define-globalized-minor-mode pro-tabs-global-tab-line-keys-mode
+  pro-tabs-tab-line-keys-mode
+  pro-tabs--maybe-enable-tab-line-keys
+  :group 'pro-tabs)
+
+(add-hook 'tab-line-mode-hook #'pro-tabs--maybe-enable-tab-line-keys)
+(add-hook 'tab-line-mode-off-hook #'pro-tabs--maybe-enable-tab-line-keys)
+
 ;;;###autoload
 (define-minor-mode pro-tabs-mode
   "Toggle pro-tabs enhancements globally."
@@ -348,6 +384,7 @@ Shows a wave separator left/right, plus an icon (like pro-tabs-format-tab-bar). 
   :group 'pro-tabs
   (if pro-tabs-mode
       (progn
+        (pro-tabs-global-tab-line-keys-mode 1)
         ;; save old values
         (setq pro-tabs--old-tab-bar-new-button-show tab-bar-new-button-show)
         (setq pro-tabs--old-tab-bar-close-button-show tab-bar-close-button-show)

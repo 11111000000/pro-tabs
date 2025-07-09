@@ -61,22 +61,48 @@
 ;; Global faces (single source of truth)
 ;; -------------------------------------------------------------------
 (defface pro-tabs-active-face
-  '((t :inherit default))
-  "Face for active tab (both tab-bar and tab-line)."  :group 'pro-tabs)
+  '((t :background unspecified :inherit default))
+  "Face for active tab (both tab-bar and tab-line): same background as Emacs default."  :group 'pro-tabs)
 
 (defface pro-tabs-inactive-face
-  '((t :inherit pro-tabs-active-face))
-  "Face for inactive tab (both tab-bar and tab-line)." :group 'pro-tabs)
+  ;; Цвет будет переустанавливаться динамически
+  '((t :background unspecified :inherit pro-tabs-active-face :distant-foreground "#888"))
+  "Face for inactive tab (both tab-bar and tab-line): a bit lighter than the darkest possible tab-bar color." :group 'pro-tabs)
 
 (defun pro-tabs--inherit-builtins ()
-  "Make built-in faces inherit from pro-tabs faces."
-  (dolist (f '((tab-bar-tab                 . pro-tabs-active-face)
-               (tab-bar-tab-inactive        . pro-tabs-inactive-face)
-               (tab-line-tab-current        . pro-tabs-active-face)
-               (tab-line-tab-inactive       . pro-tabs-inactive-face)
-               (tab-line-tab                . pro-tabs-inactive-face)))
-    (when (facep (car f))
-      (set-face-attribute (car f) nil :inherit (cdr f) :box nil))))
+  "Make built-in faces inherit from pro-tabs faces and set proper backgrounds."
+  (let* ((default-bg (face-background 'default nil t))
+         (tabbar-bg (or (face-background 'tab-bar nil t)
+                        (face-background 'mode-line nil t)
+                        "#222"))
+         ;; Фон для неактивных — между таббар и default (или осветлённый tabbar)
+         (inactive-bg (if (and default-bg tabbar-bg)
+                          (apply #'color-rgb-to-hex
+                                 (cl-mapcar (lambda (a b) (+ (* 0.75 a) (* 0.25 b)))
+                                            (color-name-to-rgb tabbar-bg)
+                                            (color-name-to-rgb default-bg)))
+                        "#333")))
+    ;; Установить активной лицо default, неактивной — чуть светлее tabbar
+    (ignore-errors
+      (set-face-attribute 'pro-tabs-active-face nil :background default-bg))
+    (ignore-errors
+      (set-face-attribute 'pro-tabs-inactive-face nil :background inactive-bg))
+    ;; Унаследовать всё нужное (без box), фон вкладок tab-line = активной pro-tabs-active-face
+    (let ((active-bg (face-background 'pro-tabs-active-face nil t)))
+      (dolist (f '((tab-bar-tab                 . pro-tabs-active-face)
+                   (tab-bar-tab-inactive        . pro-tabs-inactive-face)))
+        (when (facep (car f))
+          (set-face-attribute (car f) nil :inherit (cdr f) :box nil)))
+      (dolist (f '(tab-line-tab-current tab-line-tab-inactive tab-line-tab))
+        (when (facep f)
+          (set-face-attribute f nil
+                              :inherit 'pro-tabs-active-face
+                              :background active-bg
+                              :box nil))))
+    (when (facep 'tab-bar)
+      (set-face-attribute 'tab-bar nil :background tabbar-bg))
+    (when (facep 'tab-line)
+      (set-face-attribute 'tab-line nil :background tabbar-bg))))
 
 ;; -------------------------------------------------------------------
 ;; Pure helpers

@@ -51,12 +51,12 @@
   :type 'integer
   :group 'pro-tabs)
 
-(defcustom pro-tabs-tab-bar-height 23
+(defcustom pro-tabs-tab-bar-height 25
   "Height (in pixels) for pro-tabs tab-bar formatting."
   :type 'integer
   :group 'pro-tabs)
 
-(defcustom pro-tabs-tab-line-height 20
+(defcustom pro-tabs-tab-line-height 21
   "Height (in pixels) for pro-tabs tab-line formatting."
   :type 'integer
   :group 'pro-tabs)
@@ -189,29 +189,76 @@ Pure utility used for beautified tab-names."
 ;; These are pure: they use only args or defcustoms, never setq etc.
 ;; They are designed for assignment to tab-bar-tab-name-format-function and tab-line-tab-name-function.
 
+(defun pro-tabs--tab-icon (buffer-or-mode &optional context)
+  "Return an icon suitable for BUFFER-OR-MODE.
+If BUFFER-OR-MODE is a buffer, use its major-mode, else treat as major-mode symbol.
+CONTEXT is a keyword: either 'tab-bar or 'tab-line to select icon height/v-adjust and font face.
+
+- For terminal-like modes always use alltheicon-terminal with tweaked height.
+- For browsers use specific icons.
+- For all others: for tab-bar return all-the-icons-icon-for-mode as is;
+  for tab-line add face to the string icon (not symbols)."
+  (let* ((mode (cond
+                ((bufferp buffer-or-mode)
+                 (buffer-local-value 'major-mode buffer-or-mode))
+                ((symbolp buffer-or-mode)
+                 buffer-or-mode)
+                (t nil)))
+         (defaults (cond
+                    ((eq context 'tab-bar)
+                     (list :default (all-the-icons-octicon "browser" :height 1 :v-adjust 0.1)
+                           :height 0.8
+                           :firefox (all-the-icons-faicon "firefox" :height 1 :v-adjust 0)
+                           :chrome (all-the-icons-faicon "chrome" :height 1 :v-adjust 0)
+                           :terminal-height 0.9 :terminal-v-adj -0.06))
+                    ((eq context 'tab-line)
+                     (list :default (all-the-icons-octicon "browser" :height 0.85 :v-adjust -0.14)
+                           :height 0.68
+                           :firefox (all-the-icons-faicon "firefox" :height 0.85 :v-adjust -0.14)
+                           :chrome (all-the-icons-faicon "chrome" :height 0.85 :v-adjust -0.14)
+                           :terminal-height 0.7 :terminal-v-adj 0.05))
+                    (t (list :default "" :height 0.8))))
+         (term-modes '(term-mode vterm-mode eshell-mode shell-mode))
+         (bufname (if (bufferp buffer-or-mode) (buffer-name buffer-or-mode) ""))
+         (icon-firefox (plist-get defaults :firefox))
+         (icon-chrome (plist-get defaults :chrome))
+         (icon-default (plist-get defaults :default))
+         (icon-height (plist-get defaults :height))
+         (icon-term-h (plist-get defaults :terminal-height))
+         (icon-term-v (plist-get defaults :terminal-v-adj)))
+    (when pro-tabs-enable-icons
+      (or
+       ;; hard overrides by buffer name
+       (and (string-match-p "Firefox-esr\\|firefox-default" bufname) icon-firefox)
+       (and (string-match-p "Google-chrome" bufname) icon-chrome)
+       ;; Terminal: ALWAYS our custom
+       (and (memq mode term-modes)
+            (all-the-icons-alltheicon "terminal"
+                                      :height icon-term-h
+                                      :v-adjust icon-term-v))
+       ;; "Normal" case
+       (let ((icon (all-the-icons-icon-for-mode mode :height icon-height)))
+         (cond
+          ;; unknown icon -- fallback
+          ((symbolp icon) icon-default)
+          ;; tab-bar — использовать нативно (тогда будет верно face, высота и фон)
+          ((eq context 'tab-bar) icon)
+          ;; tab-line — навесить face вкладки
+          ((and (eq context 'tab-line) (stringp icon))
+           (let ((face (if (eq buffer-or-mode (window-buffer))
+                           'tab-line-tab-current
+                         'tab-line-tab-inactive)))
+             (propertize icon 'face face)))
+          (t icon)))
+       ))))
+
 (defun pro-tabs-format-tab-bar (tab i)
   "Return formatted string for TAB (alist from Emacs). Used as `tab-bar-tab-name-format-function'.
 Second arg I is the tab index (unused). Never mutates global state."
   (let* ((tab-height pro-tabs-tab-bar-height)
          (tab-name-length pro-tabs-max-tab-name-length)
-         (icon-default (when pro-tabs-enable-icons
-                         (all-the-icons-octicon "browser" :height 1 :v-adjust 0.1)))
-         (icon-firefox (when pro-tabs-enable-icons
-                         (all-the-icons-faicon "firefox" :height 1 :v-adjust 0)))
-         (icon-chrome (when pro-tabs-enable-icons
-                        (all-the-icons-faicon "chrome" :height 1 :v-adjust 0)))
-         (tab-name-replacements `(("Firefox-esr" . ,icon-firefox)
-                                  ("firefox-default" . ,icon-firefox)
-                                  ("Google-chrome" . ,icon-chrome)))
          (current-tab? (eq (car tab) 'current-tab))
          (buffer-name (substring-no-properties (alist-get 'name tab)))
-         (tab-major-mode (if (bufferp (get-buffer buffer-name))
-                             (with-current-buffer buffer-name major-mode) nil))
-         (icon-mode (when pro-tabs-enable-icons
-                      (all-the-icons-icon-for-mode tab-major-mode :height 0.8)))
-         (icon-tab (cond ((not pro-tabs-enable-icons) "")
-                         ((symbolp icon-mode) icon-default)
-                         (t icon-mode)))
          (tab-face (if current-tab? 'tab-bar-tab 'tab-bar-tab-inactive))
          (wave-right (propertize " " 'display
                                  (pro-tabs--wave-right
@@ -223,7 +270,12 @@ Second arg I is the tab index (unused). Never mutates global state."
                                  'tab-bar
                                  tab-face
                                  (+ 1 tab-height))))
-         (shortened-name (pro-tabs--replace-strings tab-name-replacements buffer-name))
+         (shortened-name (pro-tabs--replace-strings
+                          '(("Firefox-esr" . "")
+                            ("firefox-default" . "")
+                            ("Google-chrome" . ""))
+                          buffer-name))
+         (icon-tab (pro-tabs--tab-icon (get-buffer buffer-name) 'tab-bar))
          (final-tab-name (format "%s" (if (> (length shortened-name) tab-name-length)
                                           (concat
                                            (substring shortened-name 0 tab-name-length) "…")
@@ -259,14 +311,16 @@ Second arg I is the tab index (unused). Never mutates global state."
 
 (defun pro-tabs-format-tab-line (buffer &optional _buffers)
   "Return formatted display for BUFFER for use with `tab-line-tab-name-function`.
-Shows a wave separator left/right. Pure function."
+Shows a wave separator left/right, plus an icon (like pro-tabs-format-tab-bar). Pure function."
   (let* ((is-current (eq buffer (window-buffer)))
-         (_face-tab (if is-current 'tab-line-tab-current 'tab-line-tab-inactive))
-         (bname (format "%s" (buffer-name buffer))))
-    (concat
-     (propertize " " 'display (pro-tabs--wave-right nil 'tab-line (+ 1 pro-tabs-tab-line-height)))
-     bname
-     (propertize " " 'display (pro-tabs--wave-left 'tab-line nil (+ 1 pro-tabs-tab-line-height))))))
+         (face-tab (if is-current 'tab-line-tab-current 'tab-line-tab-inactive))
+         (bname (buffer-name buffer))
+         (icon (pro-tabs--tab-icon buffer 'tab-line))
+         (wave-right (propertize " " 'display (pro-tabs--wave-right nil 'tab-line (+ 1 pro-tabs-tab-line-height))))
+         (wave-left (propertize " " 'display (pro-tabs--wave-left 'tab-line nil (+ 1 pro-tabs-tab-line-height))))
+         (tab-text (concat wave-right " " icon " " bname " " wave-left)))
+    (add-face-text-property 0 (length tab-text) face-tab t tab-text)
+    tab-text))
 
 ;; Set this only from pro-tabs-mode, not on load!
 
@@ -325,6 +379,17 @@ Shows a wave separator left/right. Pure function."
         (ignore-errors (set-face-attribute 'tab-line-tab nil :box nil))
         (ignore-errors (set-face-attribute 'tab-line-tab-current nil :box nil))
         (ignore-errors (set-face-attribute 'tab-line-tab-inactive nil :box nil))
+        ;; Убираем box даже в tab-bar-вкладках
+        (ignore-errors (set-face-attribute 'tab-bar-tab nil :box nil))
+        (ignore-errors (set-face-attribute 'tab-bar-tab-inactive nil :box nil))
+        (ignore-errors (set-face-attribute 'tab-bar-tab-group-current nil :box nil))
+        (ignore-errors (set-face-attribute 'tab-bar-tab-group-inactive nil :box nil))
+        (ignore-errors (set-face-attribute 'tab-bar-tab-ungrouped nil :box nil))
+        ;; -- Повышаем читаемость вкладок --
+        (when (facep 'tab-bar-tab)
+          (set-face-attribute 'tab-bar-tab nil :height 1.1))
+        (when (facep 'tab-bar-tab-inactive)
+          (set-face-attribute 'tab-bar-tab-inactive nil :height 1.0))
 
         ;; Keybindings s-0...s-9
         (setq pro-tabs--old-s-keys (make-hash-table))
@@ -368,6 +433,12 @@ Shows a wave separator left/right. Pure function."
     (ignore-errors (set-face-attribute 'tab-line-tab nil :box t))
     (ignore-errors (set-face-attribute 'tab-line-tab-current nil :box t))
     (ignore-errors (set-face-attribute 'tab-line-tab-inactive nil :box t))
+    ;; Восстанавливаем box у tab-bar фейсов при отключении режима
+    (ignore-errors (set-face-attribute 'tab-bar-tab nil :box '(:line-width -2 :color unspecified)))
+    (ignore-errors (set-face-attribute 'tab-bar-tab-inactive nil :box '(:line-width -2 :color unspecified)))
+    (ignore-errors (set-face-attribute 'tab-bar-tab-group-current nil :box '(:line-width -2 :color unspecified)))
+    (ignore-errors (set-face-attribute 'tab-bar-tab-group-inactive nil :box '(:line-width -2 :color unspecified)))
+    (ignore-errors (set-face-attribute 'tab-bar-tab-ungrouped nil :box '(:line-width -2 :color unspecified)))
     (remove-hook 'vterm-mode-hook #'tab-line-mode)
     (remove-hook 'telega-mode-hook #'tab-line-mode)
     ;; Restore s-0..9

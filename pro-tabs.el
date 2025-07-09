@@ -59,16 +59,17 @@
 ;; Global faces (single source of truth)
 ;; -------------------------------------------------------------------
 (defface pro-tabs-active-face
-  '((t :background unspecified :inherit default))
-  "Face for active tab (both tab-bar and tab-line): same background as Emacs default."  :group 'pro-tabs)
+  `((t (:inherit pro-tabs-face :background ,(pro-tabs--safe-face-background 'default))))
+  "Face for active pro tab."
+  :group 'pro-tabs)
 
 (defface pro-tabs-inactive-face
   ;; Цвет будет переустанавливаться динамически
-  '((t :inherit default :background "grey30"))
+  '((t :background "grey30"))
   "Face for inactive tab (both tab-bar and tab-line): a bit lighter than the darkest possible tab-bar color." :group 'pro-tabs)
 
 (defface pro-tabs-face
-  '((t :background "grey20" :inherit default))
+  '((t :background "grey20" ))
   "Face for tab-line background (the empty track behind tabs)."  :group 'pro-tabs)
 
 (defun pro-tabs--inherit-builtins ()
@@ -214,7 +215,7 @@ BACKEND is 'tab-bar or 'tab-line. Returns a string (propertized with face when f
              ((memq mode term-modes)
               (all-the-icons-alltheicon "terminal"))
              ((eq mode 'dired-mode)
-              (all-the-icons-octicon "file-directory" :height 0.95 :v-adjust 0.0))
+              (all-the-icons-octicon "file-directory" :v-adjust 0.0))
              ((eq mode 'org-mode)
               (all-the-icons-fileicon "org" :v-adjust 0.05))
              ((eq mode 'Info-mode)

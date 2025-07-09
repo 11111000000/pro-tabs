@@ -64,62 +64,34 @@
 
 (defface pro-tabs-inactive-face
   ;; Цвет будет переустанавливаться динамически
-  '((t :background unspecified :inherit pro-tabs-active-face :distant-foreground "#888"))
+  '((t :inherit default :background "grey"))
   "Face for inactive tab (both tab-bar and tab-line): a bit lighter than the darkest possible tab-bar color." :group 'pro-tabs)
 
+(defface pro-tabs-face
+  '((t :background "DarkGrey" :inherit default))
+  "Face for tab-line background (the empty track behind tabs)."  :group 'pro-tabs)
+
 (defun pro-tabs--inherit-builtins ()
-  "Make built-in faces inherit from pro-tabs faces and set proper backgrounds."
-  (let* ((default-bg (face-background 'default nil t))
-         (tabbar-bg (or (face-background 'tab-bar nil t)
-                        (face-background 'mode-line nil t)
-                        "#222"))
-         ;; Фон для неактивных — между таббар и default (или осветлённый tabbar)
-         (inactive-bg (if (and default-bg tabbar-bg)
-                          (apply #'color-rgb-to-hex
-                                 (cl-mapcar (lambda (a b) (+ (* 0.75 a) (* 0.25 b)))
-                                            (color-name-to-rgb tabbar-bg)
-                                            (color-name-to-rgb default-bg)))
-                        "#333")))
-    ;; Установить активной лицо default, неактивной — чуть светлее tabbar
-    (ignore-errors
-      (set-face-attribute 'pro-tabs-active-face nil :background default-bg))
-    (ignore-errors
-      (set-face-attribute 'pro-tabs-inactive-face nil :background inactive-bg))
-    ;; Унаследовать всё нужное (без box), фон вкладок tab-line = активной pro-tabs-active-face
-    (let ((active-bg (face-background 'pro-tabs-active-face nil t)))
-      (dolist (f '((tab-bar-tab                 . pro-tabs-active-face)
-                   (tab-bar-tab-inactive        . pro-tabs-inactive-face)))
-        (when (facep (car f))
-          (set-face-attribute (car f) nil :inherit (cdr f) :box nil)))
-      (dolist (f '(tab-line-tab-current tab-line-tab-inactive tab-line-tab))
-        (when (facep f)
-          (set-face-attribute f nil
-                              :inherit 'pro-tabs-active-face
-                              :background active-bg
-                              :box nil))))
-    (when (facep 'tab-bar)
-      (set-face-attribute 'tab-bar nil :background tabbar-bg))
-    (when (facep 'tab-line)
-      (set-face-attribute 'tab-line nil :background tabbar-bg))))
+  "Make built-in tab-bar / tab-line faces inherit from unified pro-tabs faces.
+This simple mapping keeps the active / inactive distinction without
+calculating any colours or backgrounds."
+  (dolist (spec '((tab-bar-tab           . pro-tabs-active-face)
+                  (tab-bar-tab-inactive  . pro-tabs-inactive-face)
+                  (tab-bar               . pro-tabs-face)
+                  (tab-line-tab          . pro-tabs-active-face)
+                  (tab-line-tab-current  . pro-tabs-active-face)
+                  (tab-line-tab-inactive . pro-tabs-inactive-face)
+                  (tab-line              . pro-tabs-face)))
+    (when (facep (car spec))
+      (set-face-attribute (car spec) nil
+                          :inherit (cdr spec)
+                          :box nil
+                          :background 'unspecified
+                          :foreground 'unspecified))))
 
 ;; -------------------------------------------------------------------
 ;; Pure helpers
 ;; -------------------------------------------------------------------
-(defun pro-tabs--face-bg (face)
-  "Return background color of FACE, or fallback to default background, always color string."
-  (let ((col (face-background face nil t)))
-    (or (and col (not (string= col "unspecified-bg")) col)
-        (face-background 'default nil t)
-        "#222")))
-
-(defun pro-tabs--blend (f1 f2)
-  (let ((c1 (pro-tabs--face-bg f1))
-        (c2 (pro-tabs--face-bg f2)))
-    (if (or (equal c1 "None") (equal c2 "None")) "None"
-      (apply #'color-rgb-to-hex
-             (cl-mapcar (lambda (a b) (/ (+ a b) 2))
-                        (color-name-to-rgb c1)
-                        (color-name-to-rgb c2))))))
 
 (defun pro-tabs--safe-face-background (face)
   "Return the background color of FACE or \"None\" if unavailable."

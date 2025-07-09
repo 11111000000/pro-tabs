@@ -1,5 +1,4 @@
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;  pro-tabs.el — Simple & reusable tabs for Emacs            -*-lexical-binding:t-*-
+;;;  pro-tabs.el --- Simple & reusable tabs for Emacs -*-lexical-binding:t-*-
 ;;
 ;;  Author: Peter Kosov  ·  https://github.com/11111000000/pro-tabs
 ;;  Version: 2.0  (reborn in the spirit of Dao)
@@ -7,7 +6,6 @@
 ;;  Keywords: convenience, tabs, ui
 ;;
 ;;  “Пустота полезна, именно ею пользуемся.”           — 道德经, 11
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;;; Commentary:
 
@@ -401,4 +399,3 @@ BACKEND ∈ {'tab-bar,'tab-line}.  ITEM is alist(tab) or buffer."
 
 (provide 'pro-tabs)
 ;;; pro-tabs.el ends here
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

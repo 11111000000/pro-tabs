@@ -57,6 +57,14 @@
 (defcustom pro-tabs-tab-line-height 21
   "Height in px used for wave on tab-line." :type 'integer :group 'pro-tabs)
 
+(defcustom pro-tabs-setup-keybindings t
+  "When non-nil, pro-tabs will install its default keybindings (s-0…s-9)
+for quick tab selection.  Set to nil before loading `pro-tabs' if you
+prefer to manage those bindings yourself or if they conflict with
+existing ones."
+  :type 'boolean
+  :group 'pro-tabs)
+
 ;; -------------------------------------------------------------------
 ;; Icon provider abstraction
 ;; -------------------------------------------------------------------
@@ -325,7 +333,6 @@ BACKEND ∈ {'tab-bar,'tab-line}.  ITEM is alist(tab) or buffer."
 ;; Minor mode (side-effects live here)
 ;; -------------------------------------------------------------------
 (defvar pro-tabs--saved-vars nil)      ; alist (sym . value)
-(defvar pro-tabs--saved-keys nil)      ; hash key → binding
 
 (defun pro-tabs--save (var)
   (push (cons var (symbol-value var)) pro-tabs--saved-vars))
@@ -362,6 +369,9 @@ BACKEND ∈ {'tab-bar,'tab-line}.  ITEM is alist(tab) or buffer."
 
         (tab-bar-mode 1)
         (tab-bar-history-mode 1)
+        ;; Make sure the tab-bar is shown right away, even when there is
+        ;; only one tab at startup.
+        (set-frame-parameter nil 'tab-bar-lines 1)
         
         ;; --- make sure every frame shows tab-bar -----------------
         (dolist (fr (frame-list))
@@ -384,20 +394,34 @@ BACKEND ∈ {'tab-bar,'tab-line}.  ITEM is alist(tab) or buffer."
         ;; s-0 … s-9 quick select (respect existing bindings, make customizable)
         (defvar pro-tabs-keymap (make-sparse-keymap)
           "Keymap for pro-tabs quick selection. Customizable.")
-
-        (setq pro-tabs--saved-keys (make-hash-table :test #'equal))
-        (dotimes (i 10)
-          (let* ((num i)
-                 (k (kbd (format "s-%d" num))))
-            ;; Only bind if unbound or explicitly allowed by user
-            (unless (lookup-key (current-global-map) k)
-              (define-key pro-tabs-keymap k
-                (lambda () (interactive) (tab-bar-select-tab num))))))
+        (when pro-tabs-setup-keybindings
+          (dotimes (i 10)
+            (let* ((num i)
+                   (k (kbd (format "s-%d" num))))
+              ;; Only bind if unbound or explicitly allowed by user
+              (progn
+                (define-key tab-line-mode-map (kbd (format "s-%d" num))
+                            (lambda () (interactive)
+                              ;; Используем совместимый с emacs API переход по индексу (см. ниже)
+                              (let* ((index (if (zerop num) 10 num))
+                                     (buffers (funcall tab-line-tabs-function))
+                                     (buf (nth (1- index) buffers)))
+                                (when buf
+                                  (switch-to-buffer buf)))))
+                (define-key pro-tabs-keymap k
+                            (lambda () (interactive) (tab-bar-select-tab num))))))
+          (define-key tab-bar-mode-map (kbd "s-<tab>")         #'tab-bar-switch-to-next-tab)
+          (define-key tab-bar-mode-map (kbd "s-<iso-lefttab>") #'tab-bar-switch-to-prev-tab)
+          (define-key tab-line-mode-map (kbd "s-<tab>")         #'tab-line-switch-to-next-tab)
+          (define-key tab-line-mode-map (kbd "s-<iso-lefttab>") #'tab-line-switch-to-prev-tab))
+        
 
         (unless (boundp 'minor-mode-map-alist)
           (setq minor-mode-map-alist (list)))
-        (unless (assq 'pro-tabs-mode minor-mode-map-alist)
-          (push (cons 'pro-tabs-mode pro-tabs-keymap) minor-mode-map-alist))
+        ;; Добавляем карту pro-tabs *после* стандартных, чтобы `tab-line-mode-map'
+        ;; имела более высокий приоритет и могла перекрывать глобальные биндинги.
+        (add-to-list 'minor-mode-map-alist
+                     (cons 'pro-tabs-mode pro-tabs-keymap) t) ; t ⇒ append
 
         ;; Convenience: show tab-line automatically in vterm / telega
         (add-hook 'vterm-mode-hook   #'tab-line-mode)
@@ -412,14 +436,6 @@ BACKEND ∈ {'tab-bar,'tab-line}.  ITEM is alist(tab) or buffer."
         (tab-bar-mode -1)))
     (remove-hook 'after-make-frame-functions
                  #'pro-tabs--enable-tab-bar-on-frame)
-
-    ;; Clean up bindings: only remove those we've set, do not touch user's
-    (when (keymapp pro-tabs-keymap)
-      (dotimes (i 10)
-        (let ((k (kbd (format "s-%d" i))))
-          (define-key pro-tabs-keymap k nil))))
-    (setq pro-tabs-keymap (make-sparse-keymap))
-    (setq pro-tabs--saved-keys nil)
 
     (remove-hook 'vterm-mode-hook   #'tab-line-mode)
     (remove-hook 'telega-mode-hook  #'tab-line-mode)))
@@ -438,7 +454,8 @@ BACKEND ∈ {'tab-bar,'tab-line}.  ITEM is alist(tab) or buffer."
 (defun pro-tabs-close-tab-and-buffer ()
   "Kill current buffer and its tab."
   (interactive)
-  (kill-this-buffer) (tab-close))
+  (kill-this-buffer)
+  (tab-close))
 
 (provide 'pro-tabs)
 ;;; pro-tabs.el ends here

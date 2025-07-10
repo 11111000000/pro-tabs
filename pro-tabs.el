@@ -56,6 +56,30 @@
   "Height in px used for wave on tab-line." :type 'integer :group 'pro-tabs)
 
 ;; -------------------------------------------------------------------
+;; Pure helpers
+;; -------------------------------------------------------------------
+
+(defun pro-tabs--safe-face-background (face)
+  "Return the background color of FACE or \"None\" if unavailable."
+  (let ((color (and (symbolp face) (facep face) (face-background face nil t))))
+    (if (and color (not (equal color ""))) color "None")))
+
+(defun pro-tabs--safe-interpolated-color (face1 face2)
+  "Return the blended color between FACE1 and FACE2, as #RRGGBB or \"None\"."
+  (let* ((c1 (pro-tabs--safe-face-background face1))
+         (c2 (pro-tabs--safe-face-background face2)))
+    (condition-case nil
+        (if (and (not (equal c1 "None"))
+                 (not (equal c2 "None")))
+            (apply 'color-rgb-to-hex
+                   (cl-mapcar (lambda (a b) (/ (+ a b) 2))
+                              (color-name-to-rgb c1)
+                              (color-name-to-rgb c2)))
+          "None")
+      (error "None"))))
+
+
+;; -------------------------------------------------------------------
 ;; Global faces (single source of truth)
 ;; -------------------------------------------------------------------
 (defface pro-tabs-active-face
@@ -90,28 +114,6 @@ calculating any colours or backgrounds."
                           :background 'unspecified
                           :foreground 'unspecified))))
 
-;; -------------------------------------------------------------------
-;; Pure helpers
-;; -------------------------------------------------------------------
-
-(defun pro-tabs--safe-face-background (face)
-  "Return the background color of FACE or \"None\" if unavailable."
-  (let ((color (and (symbolp face) (facep face) (face-background face nil t))))
-    (if (and color (not (equal color ""))) color "None")))
-
-(defun pro-tabs--safe-interpolated-color (face1 face2)
-  "Return the blended color between FACE1 and FACE2, as #RRGGBB or \"None\"."
-  (let* ((c1 (pro-tabs--safe-face-background face1))
-         (c2 (pro-tabs--safe-face-background face2)))
-    (condition-case nil
-        (if (and (not (equal c1 "None"))
-                 (not (equal c2 "None")))
-            (apply 'color-rgb-to-hex
-                   (cl-mapcar (lambda (a b) (/ (+ a b) 2))
-                              (color-name-to-rgb c1)
-                              (color-name-to-rgb c2)))
-          "None")
-      (error "None"))))
 
 (defun pro-tabs--wave-left (face1 face2 &optional height)
   "Return left wave XPM separator (pure function, FOR TAB-BAR)."

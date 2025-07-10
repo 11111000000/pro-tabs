@@ -43,4 +43,4 @@
       (message "[pro-tabs/diagnose]   frame=%s   tab-bar-lines=%s   tab-bar-mode=%s"
                fr
                (frame-parameter fr 'tab-bar-lines)
-               (frame-parameter fr 'tab-bar-mode)))) )
+               (frame-parameter fr 'tab-bar-mode)))))

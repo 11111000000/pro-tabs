@@ -323,45 +323,13 @@ BACKEND ∈ {'tab-bar,'tab-line}.  ITEM is alist(tab) or buffer."
               tab-bar-close-button-show nil
               tab-bar-separator " "
               tab-bar-auto-width nil
-              tab-bar-show t
+              tab-bar-show 0
+              tab-bar-auto-hide-delay nil
               tab-bar-tab-name-format-function #'pro-tabs-format-tab-bar)
 
-        ;; --------------- Insert diagnostic info ---------------
-        (let ((tabs (tab-bar-tabs)))
-          (message "[pro-tabs] (diagnostic)   tab-bar-mode:%s   tab-bar-show:%s   tab-bar-tabs:%S"
-                   tab-bar-mode tab-bar-show tabs)
-          (cond
-           ((not tab-bar-mode)
-            (message "[pro-tabs] tab-bar-mode выключен — tab-bar не будет отображён."))
-           ((and (eq tab-bar-show 1) (= (length tabs) 1))
-            (message "[pro-tabs] tab-bar-show==1 и только одна вкладка — tab-bar прячется (типовое поведение Emacs)."))
-           ((and (eq tab-bar-show nil))
-            (message "[pro-tabs] tab-bar-show=nil — tab-bar никогда не показывается."))
-           ((< (frame-pixel-width) 150)
-            (message "[pro-tabs] Фрейм слишком мал для отображения tab-bar (ширина: %d px)" (frame-pixel-width)))
-           ((null tabs)
-            (message "[pro-tabs] tab-bar-tabs пуст — возможно, вкладки не инициализированы!"))
-           (t
-            (message "[pro-tabs] tab-bar должен быть ВИДЕН (если не вмешивается внешний пакет/тема)!"))))
-        (dolist (f (frame-list))
-          (let ((fm (frame-parameter f 'tab-bar-mode))
-                (fl (frame-parameter f 'tab-bar-lines)))
-            (message "[pro-tabs] (diagnostic:frame %s) tab-bar-mode:%S   tab-bar-lines:%S"
-                     f fm fl)
-            (unless (or (null fm) (eq fm 1))
-              (message "[pro-tabs] ВНИМАНИЕ: tab-bar-mode на frame %s = %S (возможно табы пропадут именно здесь, попробуйте (tab-bar-mode 1) в этом фрейме)" f fm))))
-        (when-let ((offender
-                    (catch 'found
-                      (mapatoms (lambda (sym)
-                                  (when (and (boundp sym)
-                                             (string-match "tab-bar" (symbol-name sym))
-                                             (not (eq (symbol-value sym)
-                                                      (default-value sym))))
-                                    (throw 'found sym)))))))
-          (message "[pro-tabs] WARNING: Potential override: %S value differs from default" offender))
-        ;; --------------- End diagnostics ---------------
-
-        (tab-bar-mode 1) (tab-bar-history-mode 1)
+        (tab-bar-mode 1)
+        (tab-bar-history-mode 1)
+        
         ;; --- make sure every frame shows tab-bar -----------------
         (dolist (fr (frame-list))
           (with-selected-frame fr

@@ -348,15 +348,23 @@ BACKEND ∈ {'tab-bar,'tab-line}.  ITEM is alist(tab) or buffer."
         ;; faces
         (pro-tabs--inherit-builtins)
 
-        ;; s-0 … s-9 quick select
-        (setq pro-tabs--saved-keys (make-hash-table))
+        ;; s-0 … s-9 quick select (respect existing bindings, make customizable)
+        (defvar pro-tabs-keymap (make-sparse-keymap)
+          "Keymap for pro-tabs quick selection. Customizable.")
+
+        (setq pro-tabs--saved-keys (make-hash-table :test #'equal))
         (dotimes (i 10)
           (let* ((num i)
                  (k (kbd (format "s-%d" num))))
-            (puthash k (lookup-key global-map k) pro-tabs--saved-keys)
-            (global-set-key k
-                            (lambda () (interactive)
-                              (tab-bar-select-tab num)))))
+            ;; Only bind if unbound or explicitly allowed by user
+            (unless (lookup-key (current-global-map) k)
+              (define-key pro-tabs-keymap k
+                (lambda () (interactive) (tab-bar-select-tab num))))))
+
+        (unless (boundp 'minor-mode-map-alist)
+          (setq minor-mode-map-alist (list)))
+        (unless (assq 'pro-tabs-mode minor-mode-map-alist)
+          (push (cons 'pro-tabs-mode pro-tabs-keymap) minor-mode-map-alist))
 
         ;; Convenience: show tab-line automatically in vterm / telega
         (add-hook 'vterm-mode-hook   #'tab-line-mode)
@@ -372,10 +380,13 @@ BACKEND ∈ {'tab-bar,'tab-line}.  ITEM is alist(tab) or buffer."
     (remove-hook 'after-make-frame-functions
                  #'pro-tabs--enable-tab-bar-on-frame)
 
-    ;; restore keys
-    (when (hash-table-p pro-tabs--saved-keys)
-      (maphash (lambda (k v) (global-set-key k v)) pro-tabs--saved-keys)
-      (setq pro-tabs--saved-keys nil))
+    ;; Clean up bindings: only remove those we've set, do not touch user's
+    (when (keymapp pro-tabs-keymap)
+      (dotimes (i 10)
+        (let ((k (kbd (format "s-%d" i))))
+          (define-key pro-tabs-keymap k nil))))
+    (setq pro-tabs-keymap (make-sparse-keymap))
+    (setq pro-tabs--saved-keys nil)
 
     (remove-hook 'vterm-mode-hook   #'tab-line-mode)
     (remove-hook 'telega-mode-hook  #'tab-line-mode)))

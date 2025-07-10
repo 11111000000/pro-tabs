@@ -423,9 +423,7 @@ BACKEND ∈ {'tab-bar,'tab-line}.  ITEM is alist(tab) or buffer."
         (add-to-list 'minor-mode-map-alist
                      (cons 'pro-tabs-mode pro-tabs-keymap) t) ; t ⇒ append
 
-        ;; Convenience: show tab-line automatically in vterm / telega
-        (add-hook 'vterm-mode-hook   #'tab-line-mode)
-        (add-hook 'telega-mode-hook  #'tab-line-mode))
+        )
 
     ;; ---------------- DISABLE ---------------------------------------
     (pro-tabs--restore)
@@ -435,10 +433,7 @@ BACKEND ∈ {'tab-bar,'tab-line}.  ITEM is alist(tab) or buffer."
       (with-selected-frame fr
         (tab-bar-mode -1)))
     (remove-hook 'after-make-frame-functions
-                 #'pro-tabs--enable-tab-bar-on-frame)
-
-    (remove-hook 'vterm-mode-hook   #'tab-line-mode)
-    (remove-hook 'telega-mode-hook  #'tab-line-mode)))
+                 #'pro-tabs--enable-tab-bar-on-frame)))
 
 ;; -------------------------------------------------------------------
 ;; Handy commands

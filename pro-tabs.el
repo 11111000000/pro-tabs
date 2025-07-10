@@ -34,7 +34,9 @@
 (require 'tab-bar)
 (require 'tab-line)
 (require 'color)
-(require 'all-the-icons)
+(require 'cl-lib)                       ; cl-mapcar, cl-some, …
+;; all-the-icons теперь опционален
+(ignore-errors (require 'all-the-icons nil t))
 
 ;; -------------------------------------------------------------------
 ;; Customisation
@@ -54,6 +56,78 @@
 
 (defcustom pro-tabs-tab-line-height 21
   "Height in px used for wave on tab-line." :type 'integer :group 'pro-tabs)
+
+;; -------------------------------------------------------------------
+;; Icon provider abstraction
+;; -------------------------------------------------------------------
+(defcustom pro-tabs-icon-functions nil
+  "Hook of providers returning an icon string.
+
+Each function gets (BUFFER-OR-MODE BACKEND) and must return either
+a propertized string (icon) или nil.  Провайдеры вызываются по
+порядку; первый ненулевой результат используется.
+
+Пользователь может добавить свои функции:
+    (add-hook 'pro-tabs-icon-functions #'my-provider)
+
+По умолчанию, если установлен `all-the-icons', подключается
+встроенный провайдер `pro-tabs--icon-provider-all-the-icons', а в
+конце списка добавляется простой fallback."
+  :type 'hook
+  :group 'pro-tabs)
+
+(defun pro-tabs--icon-provider-all-the-icons (buffer-or-mode backend)
+  "Провайдер иконок на базе `all-the-icons' (если доступен)."
+  (when (featurep 'all-the-icons)
+    (let* ((mode (cond
+                  ((bufferp buffer-or-mode)
+                   (buffer-local-value 'major-mode buffer-or-mode))
+                  ((symbolp buffer-or-mode) buffer-or-mode)))
+           (term-modes '(term-mode vterm-mode eshell-mode shell-mode))
+           (face (if (and (bufferp buffer-or-mode)
+                          (eq buffer-or-mode (window-buffer)))
+                     (if (eq backend 'tab-bar)
+                         'tab-bar-tab
+                       'tab-line-tab-current)
+                   (if (eq backend 'tab-bar)
+                       'tab-bar-tab-inactive
+                     'tab-line-tab-inactive)))
+           (icon
+            (cond
+             ((and (bufferp buffer-or-mode)
+                   (string-match-p "Firefox\\|firefox" (buffer-name buffer-or-mode)))
+              (all-the-icons-faicon "firefox"))
+             ((and (bufferp buffer-or-mode)
+                   (string-match-p "Google-chrome" (buffer-name buffer-or-mode)))
+              (all-the-icons-faicon "chrome"))
+             ((memq mode term-modes)
+              (all-the-icons-alltheicon "terminal"))
+             ((eq mode 'dired-mode)
+              (all-the-icons-octicon "file-directory" :v-adjust 0.0))
+             ((eq mode 'org-mode)
+              (all-the-icons-fileicon "org" :v-adjust 0.05))
+             ((eq mode 'Info-mode)
+              (all-the-icons-octicon "book"))
+             ((memq mode '(help-mode helpful-mode apropos-mode))
+              (all-the-icons-material "help"))
+             (t
+              (let ((maybe (all-the-icons-icon-for-mode mode)))
+                (if (stringp maybe)
+                    maybe
+                  (all-the-icons-octicon "file")))))))
+      (when (stringp icon)
+        (if (eq backend 'tab-line)
+            (propertize icon 'face face)
+          icon)))))
+
+;; Простейший fallback-провайдер (unicodes/emoji)
+(defun pro-tabs--icon-provider-fallback (_buffer-or-mode _backend)
+  "Всегда возвращает неброский bullet, если другие провайдеры не сработали."
+  "•")
+
+;; Регистрация встроенных провайдеров
+(add-hook 'pro-tabs-icon-functions #'pro-tabs--icon-provider-all-the-icons)
+(add-hook 'pro-tabs-icon-functions #'pro-tabs--icon-provider-fallback t) ; t ⇒ добавить в конец
 
 ;; -------------------------------------------------------------------
 ;; Pure helpers
@@ -196,51 +270,10 @@ calculating any colours or backgrounds."
       (list 'image :type 'xpm :data (plist-get (cdr img) :data) :ascent 'center :face face1))))
 
 (defun pro-tabs--icon (buffer-or-mode backend)
-  "Return a correct icon string for BUFFER-OR-MODE (buffer or major-mode symbol).
-BACKEND is 'tab-bar or 'tab-line. Returns a string (propertized with face when for tab-line) or nil."
+  "Возвращает первую ненулевую иконку из `pro-tabs-icon-functions'."
   (when pro-tabs-enable-icons
-    (let* ((mode (cond
-                  ((bufferp buffer-or-mode)
-                   (buffer-local-value 'major-mode buffer-or-mode))
-                  ((symbolp buffer-or-mode) buffer-or-mode)
-                  (t nil)))
-           (term-modes '(term-mode vterm-mode eshell-mode shell-mode))
-           (face (if (and (bufferp buffer-or-mode)
-                          (eq buffer-or-mode (window-buffer)))
-                     (if (eq backend 'tab-bar)
-                         'tab-bar-tab
-                       'tab-line-tab-current)
-                   (if (eq backend 'tab-bar)
-                       'tab-bar-tab-inactive
-                     'tab-line-tab-inactive)))
-           (icon
-            (cond
-             ;; explicit buffer name overrides
-             ((and (bufferp buffer-or-mode)
-                   (string-match-p "Firefox\\|firefox" (buffer-name buffer-or-mode)))
-              (all-the-icons-faicon "firefox"))
-             ((and (bufferp buffer-or-mode)
-                   (string-match-p "Google-chrome" (buffer-name buffer-or-mode)))
-              (all-the-icons-faicon "chrome"))
-             ((memq mode term-modes)
-              (all-the-icons-alltheicon "terminal"))
-             ((eq mode 'dired-mode)
-              (all-the-icons-octicon "file-directory" :v-adjust 0.0))
-             ((eq mode 'org-mode)
-              (all-the-icons-fileicon "org" :v-adjust 0.05))
-             ((eq mode 'Info-mode)
-              (all-the-icons-octicon "book"))
-             ((memq mode '(help-mode helpful-mode apropos-mode))
-              (all-the-icons-material "help"))
-             (t
-              (let ((maybe (all-the-icons-icon-for-mode mode)))
-                (if (stringp maybe)
-                    maybe
-                  (all-the-icons-octicon "file")))))))
-      (when (stringp icon)
-        (if (eq backend 'tab-line)
-            (propertize icon 'face face)
-          icon)))))
+    (cl-some (lambda (fn) (funcall fn buffer-or-mode backend))
+             pro-tabs-icon-functions)))
 
 (defun pro-tabs--shorten (str len)
   (if (> (length str) len)

@@ -47,14 +47,14 @@
 (defcustom pro-tabs-enable-icons t
   "Show icons in tabs when non-nil."  :type 'boolean :group 'pro-tabs)
 
-(defcustom pro-tabs-max-name-length 25
+(defcustom pro-tabs-max-name-length 20
   "Trim buffer / tab names to this length (ellipsis afterwards)."
   :type 'integer :group 'pro-tabs)
 
 (defcustom pro-tabs-tab-bar-height 25
   "Height in px used for wave on tab-bar."  :type 'integer :group 'pro-tabs)
 
-(defcustom pro-tabs-tab-line-height 21
+(defcustom pro-tabs-tab-line-height 18
   "Height in px used for wave on tab-line." :type 'integer :group 'pro-tabs)
 
 (defcustom pro-tabs-setup-keybindings t
@@ -103,26 +103,34 @@ a propertized string (icon) или nil.  Провайдеры вызываютс
            (icon
             (cond
              ((and (bufferp buffer-or-mode)
+                   (string-match-p "Tor Browser\\|tor browser" (buffer-name buffer-or-mode)))
+              (ignore-errors (all-the-icons-faicon "user-secret" :v-adjust 0)))
+             ((and (bufferp buffer-or-mode)
                    (string-match-p "Firefox\\|firefox" (buffer-name buffer-or-mode)))
-              (all-the-icons-faicon "firefox"))
+              (ignore-errors (all-the-icons-faicon "firefox" :v-adjust 0)))
              ((and (bufferp buffer-or-mode)
                    (string-match-p "Google-chrome" (buffer-name buffer-or-mode)))
-              (all-the-icons-faicon "chrome"))
+              (ignore-errors (all-the-icons-faicon "chrome" :v-adjust 0)))
              ((memq mode term-modes)
-              (all-the-icons-alltheicon "terminal"))
+              (ignore-errors (all-the-icons-alltheicon "terminal")))
              ((eq mode 'dired-mode)
-              (all-the-icons-octicon "file-directory" :v-adjust 0.0))
+              (ignore-errors (all-the-icons-octicon "file-directory" :v-adjust 0.0)))
              ((eq mode 'org-mode)
-              (all-the-icons-fileicon "org" :v-adjust 0.05))
+              (ignore-errors (all-the-icons-fileicon "org" :v-adjust 0.05)))
              ((eq mode 'Info-mode)
-              (all-the-icons-octicon "book"))
+              (ignore-errors (all-the-icons-octicon "book")))
              ((memq mode '(help-mode helpful-mode apropos-mode))
-              (all-the-icons-material "help"))
+              (ignore-errors (all-the-icons-material "help")))
+             ((eq mode 'exwm-mode)
+              (ignore-errors (all-the-icons-faicon "windows" :v-adjust -0.12)))
              (t
-              (let ((maybe (all-the-icons-icon-for-mode mode)))
+              (let* ((maybe (all-the-icons-icon-for-mode mode))
+                     (fallback (or (ignore-errors (all-the-icons-octicon "file"))
+                                   (ignore-errors (all-the-icons-octicon "file-text"))
+                                   "•")))
                 (if (stringp maybe)
                     maybe
-                  (all-the-icons-octicon "file")))))))
+                  fallback))))))
       (when (stringp icon)
         (if (eq backend 'tab-line)
             (propertize icon 'face face)

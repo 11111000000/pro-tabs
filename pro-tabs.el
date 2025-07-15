@@ -132,15 +132,14 @@ a propertized string (icon) или nil.  Провайдеры вызываютс
                     maybe
                   fallback))))))
       (when (stringp icon)
-        ;; Center all icons via :ascent and fix width to 2 chars
-        (propertize (format "%2s" icon) 'face face 'display '(raise 0) 'ascent 'center 'height 0.75)))))
+        icon))))
 
 ;; Простейший fallback-провайдер (unicodes/emoji)
 (defun pro-tabs--icon-provider-fallback (_buffer-or-mode backend)
   "Всегда возвращает неброский bullet, если другие провайдеры не сработали."
   (let ((icon "•"))
     ;; Обеспечим тот же размер и центрирование что и у 'all-the-icons'
-    (propertize (format "%2s" icon)
+    (propertize icon
                 'face (if (eq backend 'tab-bar) 'tab-bar-tab-inactive 'tab-line-tab-inactive)
                 'ascent 'center
                 'height 0.75)))

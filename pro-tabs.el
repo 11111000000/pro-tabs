@@ -104,42 +104,46 @@ a propertized string (icon) или nil.  Провайдеры вызываютс
             (cond
              ((and (bufferp buffer-or-mode)
                    (string-match-p "Tor Browser\\|tor browser" (buffer-name buffer-or-mode)))
-              (ignore-errors (all-the-icons-faicon "user-secret" :v-adjust 0)))
+              (ignore-errors (all-the-icons-faicon "user-secret" :v-adjust 0 :height 0.75)))
              ((and (bufferp buffer-or-mode)
                    (string-match-p "Firefox\\|firefox" (buffer-name buffer-or-mode)))
-              (ignore-errors (all-the-icons-faicon "firefox" :v-adjust 0)))
+              (ignore-errors (all-the-icons-faicon "firefox" :v-adjust 0 :height 0.75)))
              ((and (bufferp buffer-or-mode)
                    (string-match-p "Google-chrome" (buffer-name buffer-or-mode)))
-              (ignore-errors (all-the-icons-faicon "chrome" :v-adjust 0)))
+              (ignore-errors (all-the-icons-faicon "chrome" :v-adjust 0 :height 0.75)))
              ((memq mode term-modes)
-              (ignore-errors (all-the-icons-alltheicon "terminal")))
+              (ignore-errors (all-the-icons-alltheicon "terminal" :height 0.75)))
              ((eq mode 'dired-mode)
-              (ignore-errors (all-the-icons-octicon "file-directory" :v-adjust 0.0)))
+              (ignore-errors (all-the-icons-octicon "file-directory" :v-adjust 0.0 :height 0.75)))
              ((eq mode 'org-mode)
-              (ignore-errors (all-the-icons-fileicon "org" :v-adjust 0.05)))
+              (ignore-errors (all-the-icons-fileicon "org" :v-adjust 0.05 :height 0.75)))
              ((eq mode 'Info-mode)
-              (ignore-errors (all-the-icons-octicon "book")))
+              (ignore-errors (all-the-icons-octicon "book" :height 0.75)))
              ((memq mode '(help-mode helpful-mode apropos-mode))
-              (ignore-errors (all-the-icons-material "help")))
+              (ignore-errors (all-the-icons-material "help" :height 0.75)))
              ((eq mode 'exwm-mode)
-              (ignore-errors (all-the-icons-faicon "windows" :v-adjust -0.12)))
+              (ignore-errors (all-the-icons-faicon "windows" :v-adjust -0.12 :height 0.75)))
              (t
-              (let* ((maybe (all-the-icons-icon-for-mode mode))
-                     (fallback (or (ignore-errors (all-the-icons-octicon "file"))
-                                   (ignore-errors (all-the-icons-octicon "file-text"))
+              (let* ((maybe (all-the-icons-icon-for-mode mode :height 0.75))
+                     (fallback (or (ignore-errors (all-the-icons-octicon "file" :height 0.75))
+                                   (ignore-errors (all-the-icons-octicon "file-text" :height 0.75))
                                    "•")))
                 (if (stringp maybe)
                     maybe
                   fallback))))))
       (when (stringp icon)
-        (if (eq backend 'tab-line)
-            (propertize icon 'face face)
-          icon)))))
+        ;; Center all icons via :ascent and fix width to 2 chars
+        (propertize (format "%2s" icon) 'face face 'display '(raise 0) 'ascent 'center 'height 0.75)))))
 
 ;; Простейший fallback-провайдер (unicodes/emoji)
-(defun pro-tabs--icon-provider-fallback (_buffer-or-mode _backend)
+(defun pro-tabs--icon-provider-fallback (_buffer-or-mode backend)
   "Всегда возвращает неброский bullet, если другие провайдеры не сработали."
-  "•")
+  (let ((icon "•"))
+    ;; Обеспечим тот же размер и центрирование что и у 'all-the-icons'
+    (propertize (format "%2s" icon)
+                'face (if (eq backend 'tab-bar) 'tab-bar-tab-inactive 'tab-line-tab-inactive)
+                'ascent 'center
+                'height 0.75)))
 
 ;; Регистрация встроенных провайдеров
 (add-hook 'pro-tabs-icon-functions #'pro-tabs--icon-provider-all-the-icons)
@@ -313,7 +317,7 @@ BACKEND ∈ {'tab-bar,'tab-line}.  ITEM is alist(tab) or buffer."
             (wave-l   (propertize " " 'display
                                   (pro-tabs--wave-left 'tab-bar face (+ 1 h))))
             (name     (pro-tabs--shorten bufname pro-tabs-max-name-length))
-            (txt      (concat wave-r " " (or icon "") " " name " " wave-l)))
+            (txt      (concat wave-r (or icon "") " " name wave-l)))
        (add-face-text-property 0 (length txt) face t txt) txt))
 
     (_                                  ; tab-line
@@ -326,7 +330,7 @@ BACKEND ∈ {'tab-bar,'tab-line}.  ITEM is alist(tab) or buffer."
                                   (pro-tabs--wave-right face 'tab-line (+ 1 h))))
             (wave-l   (propertize " " 'display
                                   (pro-tabs--wave-left 'tab-line face (+ 1 h))))
-            (txt      (concat wave-r " " (or icon "") " " (buffer-name buffer) " " wave-l)))
+            (txt      (concat wave-r (or icon "") " " (buffer-name buffer) wave-l)))
        (add-face-text-property 0 (length txt) face t txt) txt))))
 
 (defun pro-tabs-format-tab-bar (tab idx)

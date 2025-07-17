@@ -207,6 +207,9 @@ calculating any colours or backgrounds."
                           :background 'unspecified
                           :foreground 'unspecified))))
 
+;; Применить unified faces для tab-bar и tab-line — сразу после объявления лиц
+(pro-tabs--inherit-builtins)
+
 
 ;; -------------------------------------------------------------------
 ;; Helper: keep tab-bar visible on every frame -----------------------

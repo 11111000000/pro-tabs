@@ -44,11 +44,6 @@
 (defgroup pro-tabs nil "Unified, beautiful tab-bar / tab-line."
   :group 'convenience :prefix "pro-tabs-")
 
-(defface pro-tabs-active-tab
-  `((t :inherit tab-bar-tab-inactive
-       :background ,(face-attribute 'default :background nil 'default)))
-  "Face for active tab in pro-tabs tab-bar, matches frame background."
-  :group 'pro-tabs)
 
 (defcustom pro-tabs-enable-icons t
   "Show icons in tabs when non-nil."  :type 'boolean :group 'pro-tabs)
@@ -185,6 +180,13 @@ a propertized string (icon) или nil.  Провайдеры вызываютс
   `((t (:inherit pro-tabs-face :background ,(pro-tabs--safe-face-background 'default))))
   "Face for active pro tab."
   :group 'pro-tabs)
+
+;; (defface pro-tabs-active-tab
+;;   `((t :inherit tab-bar-tab-inactive
+;;        :background ,(face-attribute 'default :background nil 'default)))
+;;   "Face for active tab in pro-tabs tab-bar, matches frame background."
+;;   :group 'pro-tabs)
+
 
 (defface pro-tabs-inactive-face
   ;; Цвет будет переустанавливаться динамически
@@ -378,7 +380,7 @@ BACKEND ∈ {'tab-bar,'tab-line}.  ITEM is alist(tab) or buffer."
                     tab-bar-separator tab-bar-auto-width tab-bar-show
                     tab-bar-tab-name-format-function
                     tab-line-new-button-show tab-line-close-button-show
-                    tab-line-separator   tab-line-switch-cycling
+                    tab-line-separator tab-line-switch-cycling
                     tab-line-tabs-function tab-line-tab-name-function))
           (when (boundp v) (pro-tabs--save v)))
 
@@ -400,6 +402,7 @@ BACKEND ∈ {'tab-bar,'tab-line}.  ITEM is alist(tab) or buffer."
         (dolist (fr (frame-list))
           (with-selected-frame fr
             (tab-bar-mode 1)))
+        
         (add-hook 'after-make-frame-functions
                   #'pro-tabs--enable-tab-bar-on-frame)
 

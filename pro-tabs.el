@@ -377,11 +377,11 @@ BACKEND ∈ {'tab-bar,'tab-line}.  ITEM is alist(tab) or buffer."
         ;; remember and override relevant vars
         (setq pro-tabs--saved-vars nil)
         (dolist (v '(tab-bar-new-button-show tab-bar-close-button-show
-                    tab-bar-separator tab-bar-auto-width tab-bar-show
-                    tab-bar-tab-name-format-function
-                    tab-line-new-button-show tab-line-close-button-show
-                    tab-line-separator tab-line-switch-cycling
-                    tab-line-tabs-function tab-line-tab-name-function))
+                                             tab-bar-separator tab-bar-auto-width tab-bar-show
+                                             tab-bar-tab-name-format-function
+                                             tab-line-new-button-show tab-line-close-button-show
+                                             tab-line-separator tab-line-switch-cycling
+                                             tab-line-tabs-function tab-line-tab-name-function))
           (when (boundp v) (pro-tabs--save v)))
 
         (setq tab-bar-new-button-show nil
@@ -397,12 +397,12 @@ BACKEND ∈ {'tab-bar,'tab-line}.  ITEM is alist(tab) or buffer."
         ;; Make sure the tab-bar is shown right away, even when there is
         ;; only one tab at startup.
         (set-frame-parameter nil 'tab-bar-lines 1)
-        
+
         ;; --- make sure every frame shows tab-bar -----------------
         (dolist (fr (frame-list))
           (with-selected-frame fr
             (tab-bar-mode 1)))
-        
+
         (add-hook 'after-make-frame-functions
                   #'pro-tabs--enable-tab-bar-on-frame)
 
@@ -423,24 +423,26 @@ BACKEND ∈ {'tab-bar,'tab-line}.  ITEM is alist(tab) or buffer."
         (when pro-tabs-setup-keybindings
           (dotimes (i 10)
             (let* ((num i)
-                   (k (kbd (format "s-%d" num))))
+                   (key-bar (kbd (format "s-%d" num)))
+                   (key-line (kbd (format "C-%d" num))))
               ;; Only bind if unbound or explicitly allowed by user
               (progn
-                (define-key tab-line-mode-map (kbd (format "s-%d" num))
+                (define-key tab-line-mode-map key-line
                             (lambda () (interactive)
-                              ;; Используем совместимый с emacs API переход по индексу (см. ниже)
                               (let* ((index (if (zerop num) 10 num))
                                      (buffers (funcall tab-line-tabs-function))
                                      (buf (nth (1- index) buffers)))
                                 (when buf
                                   (switch-to-buffer buf)))))
-                (define-key pro-tabs-keymap k
+                (define-key tab-line-mode-map key-bar
+                            (lambda () (interactive) (tab-bar-select-tab num)))
+                (define-key pro-tabs-keymap key-bar
                             (lambda () (interactive) (tab-bar-select-tab num))))))
           (define-key tab-bar-mode-map (kbd "s-<tab>")         #'tab-bar-switch-to-next-tab)
           (define-key tab-bar-mode-map (kbd "s-<iso-lefttab>") #'tab-bar-switch-to-prev-tab)
           (define-key tab-line-mode-map (kbd "s-<tab>")         #'tab-line-switch-to-next-tab)
           (define-key tab-line-mode-map (kbd "s-<iso-lefttab>") #'tab-line-switch-to-prev-tab))
-        
+
 
         (unless (boundp 'minor-mode-map-alist)
           (setq minor-mode-map-alist (list)))

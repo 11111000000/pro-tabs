@@ -227,77 +227,90 @@ calculating any colours or backgrounds."
   (with-selected-frame frame
     (tab-bar-mode 1)))
 
+;; Cache for wave images to avoid regenerating them on every redraw
+(defvar pro-tabs--wave-cache (make-hash-table :test 'equal))
+
 (defun pro-tabs--wave-left (face1 face2 &optional height)
-  "Return left wave XPM separator (pure function, FOR TAB-BAR)."
+  "Return left wave XPM separator (cached for performance)."
   (let* ((height (or height (frame-char-height)))
-         (template [  "21111111111"
-                      "00111111111"
-                      "00011111111"
-                      "00021111111"
-                      "00001111111"
-                      "00002111111"
-                      "00000111111"
-                      "00000111111"
-                      "00000211111"
-                      "00000021111"
-                      "00000001111"
-                      "00000001111"
-                      "00000002111"
-                      "00000000111"
-                      "00000000211"
-                      "00000000002"])
-         (lines nil))
-    (dotimes (i height)
-      (push (aref template (floor (* i (/ (float (length template)) height)))) lines))
-    (let ((img (create-image
-                (concat
-                 "/* XPM */\nstatic char * wave_left_xpm[] = {\n"
-                 (format "\"11 %d 3 1\", " height)
-                 "\"0 c " (pro-tabs--safe-face-background face2)
-                 "\", \"1 c " (pro-tabs--safe-face-background face1)
-                 "\", \"2 c " (pro-tabs--safe-interpolated-color face2 face1)
-                 "\",\n"
-                 (mapconcat (lambda (l) (format "\"%s\"," l)) (nreverse lines) "\n")
-                 "\"};\n")
-                'xpm t :ascent 'center)))
-      (list 'image :type 'xpm :data (plist-get (cdr img) :data) :ascent 'center :face face2))))
+         (bg1 (pro-tabs--safe-face-background face1))
+         (bg2 (pro-tabs--safe-face-background face2))
+         (cache-key (list 'left bg1 bg2 height)))
+    (or (gethash cache-key pro-tabs--wave-cache)
+        (let* ((template [  "21111111111"
+                            "00111111111"
+                            "00011111111"
+                            "00021111111"
+                            "00001111111"
+                            "00002111111"
+                            "00000111111"
+                            "00000111111"
+                            "00000211111"
+                            "00000021111"
+                            "00000001111"
+                            "00000001111"
+                            "00000002111"
+                            "00000000111"
+                            "00000000211"
+                            "00000000002"])
+               (lines nil))
+          (dotimes (i height)
+            (push (aref template (floor (* i (/ (float (length template)) height)))) lines))
+          (let ((result (list 'image :type 'xpm
+                              :data (concat
+                                     "/* XPM */\nstatic char * wave_left_xpm[] = {\n"
+                                     (format "\"11 %d 3 1\", " height)
+                                     "\"0 c " bg2
+                                     "\", \"1 c " bg1
+                                     "\", \"2 c " (pro-tabs--safe-interpolated-color face2 face1)
+                                     "\",\n"
+                                     (mapconcat (lambda (l) (format "\"%s\"," l)) (nreverse lines) "\n")
+                                     "\"};\n")
+                              :ascent 'center :face face2)))
+            (puthash cache-key result pro-tabs--wave-cache)
+            result)))))
 
 (defun pro-tabs--wave-right (face1 face2 &optional height)
-  "Return right wave XPM separator (mirror of left, FOR TAB-BAR)."
+  "Return right wave XPM separator (cached for performance)."
   (let* ((height (or height (frame-char-height)))
-         (template [  "21111111111"
-                      "00111111111"
-                      "00011111111"
-                      "00021111111"
-                      "00001111111"
-                      "00002111111"
-                      "00000111111"
-                      "00000111111"
-                      "00000211111"
-                      "00000021111"
-                      "00000001111"
-                      "00000001111"
-                      "00000002111"
-                      "00000000111"
-                      "00000000211"
-                      "00000000002"])
-         (lines nil))
-    (dotimes (i height)
-      (let* ((orig (aref template (floor (* i (/ (float (length template)) height)))))
-             (mirrored (apply #'string (nreverse (string-to-list orig)))))
-        (push mirrored lines)))
-    (let ((img (create-image
-                (concat
-                 "/* XPM */\nstatic char * wave_right_xpm[] = {\n"
-                 (format "\"11 %d 3 1\", " height)
-                 "\"0 c " (pro-tabs--safe-face-background face1)
-                 "\", \"1 c " (pro-tabs--safe-face-background face2)
-                 "\", \"2 c " (pro-tabs--safe-interpolated-color face1 face2)
-                 "\",\n"
-                 (mapconcat (lambda (l) (format "\"%s\"," l)) (nreverse lines) "\n")
-                 "\"};\n")
-                'xpm t :ascent 'center)))
-      (list 'image :type 'xpm :data (plist-get (cdr img) :data) :ascent 'center :face face1))))
+         (bg1 (pro-tabs--safe-face-background face1))
+         (bg2 (pro-tabs--safe-face-background face2))
+         (cache-key (list 'right bg1 bg2 height)))
+    (or (gethash cache-key pro-tabs--wave-cache)
+        (let* ((template [  "21111111111"
+                            "00111111111"
+                            "00011111111"
+                            "00021111111"
+                            "00001111111"
+                            "00002111111"
+                            "00000111111"
+                            "00000111111"
+                            "00000211111"
+                            "00000021111"
+                            "00000001111"
+                            "00000001111"
+                            "00000002111"
+                            "00000000111"
+                            "00000000211"
+                            "00000000002"])
+               (lines nil))
+          (dotimes (i height)
+            (let* ((orig (aref template (floor (* i (/ (float (length template)) height)))))
+                   (mirrored (apply #'string (nreverse (string-to-list orig)))))
+              (push mirrored lines)))
+          (let ((result (list 'image :type 'xpm
+                              :data (concat
+                                     "/* XPM */\nstatic char * wave_right_xpm[] = {\n"
+                                     (format "\"11 %d 3 1\", " height)
+                                     "\"0 c " bg1
+                                     "\", \"1 c " bg2
+                                     "\", \"2 c " (pro-tabs--safe-interpolated-color face1 face2)
+                                     "\",\n"
+                                     (mapconcat (lambda (l) (format "\"%s\"," l)) (nreverse lines) "\n")
+                                     "\"};\n")
+                              :ascent 'center :face face1)))
+            (puthash cache-key result pro-tabs--wave-cache)
+            result)))))
 
 (defun pro-tabs--icon (buffer-or-mode backend)
   "Возвращает первую ненулевую иконку из `pro-tabs-icon-functions'."

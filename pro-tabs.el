@@ -126,8 +126,8 @@ a propertized string (icon) или nil.  Провайдеры вызываютс
               (ignore-errors (all-the-icons-faicon "windows" :v-adjust -0.12 :height 0.75)))
              (t
               (let* ((maybe (all-the-icons-icon-for-mode mode :height 0.75))
-                     (fallback (or (ignore-errors (all-the-icons-octicon "file" :height 0.75))
-                                   (ignore-errors (all-the-icons-octicon "file-text" :height 0.75))
+                     (fallback (or (ignore-errors (all-the-icons-octicon "file" :height 0.75 :v-adjust 0.12))
+                                   (ignore-errors (all-the-icons-octicon "file-text" :height 0.75 :v-adjust 0.12))
                                    "•")))
                 (if (stringp maybe)
                     maybe
@@ -331,9 +331,18 @@ BACKEND ∈ {'tab-bar,'tab-line}.  ITEM is alist(tab) or buffer."
   (pcase backend
     ('tab-bar
      (let* ((current? (eq (car item) 'current-tab))
-            (bufname  (substring-no-properties (alist-get 'name item)))
+            (explicit (alist-get 'explicit-name item))
             (face     (if current? 'pro-tabs-active-face 'pro-tabs-inactive-face))
-            (icon     (pro-tabs--icon (get-buffer bufname) 'tab-bar))
+            ;; For the current tab, rely on the actual selected window's buffer
+            ;; (avoids transient mismatch when tab-bar updates names before flags).
+            (curr-win (and current? (or (minibuffer-selected-window) (selected-window))))
+            (curr-buf (and current? (window-buffer curr-win)))
+            (raw-name (cond
+                       (explicit explicit)
+                       (current? (buffer-name curr-buf))
+                       (t (alist-get 'name item))))
+            (bufname  (substring-no-properties (format "%s" raw-name)))
+            (icon     (pro-tabs--icon (or curr-buf (get-buffer bufname)) 'tab-bar))
             (h        pro-tabs-tab-bar-height)
             (wave-r   (propertize " " 'display
                                   (pro-tabs--wave-right face 'tab-bar (+ 1 h))))

@@ -176,18 +176,17 @@ a propertized string (icon) или nil.  Провайдеры вызываютс
 ;; Global faces (single source of truth)
 ;; -------------------------------------------------------------------
 (defface pro-tabs-active-face
-  `((t (:inherit pro-tabs-face :background ,(pro-tabs--safe-face-background 'default))))
+  '((t (:inherit pro-tabs-face)))
   "Face for active pro tab."
   :group 'pro-tabs)
 
 (defface pro-tabs-inactive-face
-  ;; Цвет будет переустанавливаться динамически
-  '((t :background "grey30"))
-  "Face for inactive tab (both tab-bar and tab-line): a bit lighter than the darkest possible tab-bar color." :group 'pro-tabs)
+  '((t (:inherit pro-tabs-face)))
+  "Face for inactive tab (both tab-bar and tab-line)." :group 'pro-tabs)
 
 (defface pro-tabs-face
-  '((t :background "grey20" ))
-  "Face for tab-line background (the empty track behind tabs)."  :group 'pro-tabs)
+  '((t (:inherit default)))
+  "Face for tab-line/background (the empty track behind tabs)."  :group 'pro-tabs)
 
 (defun pro-tabs--inherit-builtins ()
   "Make built-in tab-bar / tab-line faces inherit from unified pro-tabs faces.
@@ -206,6 +205,50 @@ calculating any colours or backgrounds."
                           :box nil
                           :background 'unspecified
                           :foreground 'unspecified))))
+
+;; Theme tracking and dynamic recomputation of faces
+(defvar pro-tabs--theme-tracking-installed nil
+  "Internal flag to prevent double-installing theme tracking.")
+
+(defun pro-tabs--refresh-faces (&rest _)
+  "Recompute and apply pro-tabs faces based on the current theme."
+  (let* ((bar-bg (or (face-attribute 'tab-bar :background nil t)
+                     (face-attribute 'default :background nil t)))
+         (def-bg (face-attribute 'default :background nil t))
+         (inactive-mix (pro-tabs--safe-interpolated-color 'tab-bar 'default))
+         (inactive-bg (if (and inactive-mix (not (equal inactive-mix "None")))
+                          inactive-mix
+                        bar-bg)))
+    (when (fboundp 'face-spec-set)
+      (face-spec-set 'pro-tabs-face
+                     `((t :background ,bar-bg))
+                     'face-defface-spec)
+      (face-spec-set 'pro-tabs-active-face
+                     `((t :inherit pro-tabs-face :background ,def-bg))
+                     'face-defface-spec)
+      (face-spec-set 'pro-tabs-inactive-face
+                     `((t :inherit pro-tabs-face :background ,inactive-bg))
+                     'face-defface-spec))
+    ;; Reapply inheritance to built-in faces and refresh UI
+    (pro-tabs--inherit-builtins)
+    (when (featurep 'tab-bar)
+      (ignore-errors (tab-bar--update-tab-bar-lines)))
+    (when (bound-and-true-p tab-line-mode)
+      (tab-line-mode -1) (tab-line-mode 1))
+    (force-mode-line-update t)))
+
+(defun pro-tabs--install-theme-tracking ()
+  "Install hooks/advice to recompute pro-tabs faces when theme changes."
+  (unless pro-tabs--theme-tracking-installed
+    (setq pro-tabs--theme-tracking-installed t)
+    (if (boundp 'enable-theme-functions)
+        (add-hook 'enable-theme-functions #'pro-tabs--refresh-faces)
+      (advice-add 'load-theme :after #'pro-tabs--refresh-faces))
+    ;; Run once at load to sync with current theme
+    (pro-tabs--refresh-faces)))
+
+;; Ensure tracking is active after load
+(pro-tabs--install-theme-tracking)
 
 
 ;; -------------------------------------------------------------------
@@ -363,11 +406,11 @@ BACKEND ∈ {'tab-bar,'tab-line}.  ITEM is alist(tab) or buffer."
         ;; remember and override relevant vars
         (setq pro-tabs--saved-vars nil)
         (dolist (v '(tab-bar-new-button-show tab-bar-close-button-show
-                    tab-bar-separator tab-bar-auto-width tab-bar-show
-                    tab-bar-tab-name-format-function
-                    tab-line-new-button-show tab-line-close-button-show
-                    tab-line-separator   tab-line-switch-cycling
-                    tab-line-tabs-function tab-line-tab-name-function))
+                                             tab-bar-separator tab-bar-auto-width tab-bar-show
+                                             tab-bar-tab-name-format-function
+                                             tab-line-new-button-show tab-line-close-button-show
+                                             tab-line-separator   tab-line-switch-cycling
+                                             tab-line-tabs-function tab-line-tab-name-function))
           (when (boundp v) (pro-tabs--save v)))
 
         (setq tab-bar-new-button-show nil
@@ -383,7 +426,7 @@ BACKEND ∈ {'tab-bar,'tab-line}.  ITEM is alist(tab) or buffer."
         ;; Make sure the tab-bar is shown right away, even when there is
         ;; only one tab at startup.
         (set-frame-parameter nil 'tab-bar-lines 1)
-        
+
         ;; --- make sure every frame shows tab-bar -----------------
         (dolist (fr (frame-list))
           (with-selected-frame fr
@@ -425,7 +468,7 @@ BACKEND ∈ {'tab-bar,'tab-line}.  ITEM is alist(tab) or buffer."
           (define-key tab-bar-mode-map (kbd "s-<iso-lefttab>") #'tab-bar-switch-to-prev-tab)
           (define-key tab-line-mode-map (kbd "s-<tab>")         #'tab-line-switch-to-next-tab)
           (define-key tab-line-mode-map (kbd "s-<iso-lefttab>") #'tab-line-switch-to-prev-tab))
-        
+
 
         (unless (boundp 'minor-mode-map-alist)
           (setq minor-mode-map-alist (list)))

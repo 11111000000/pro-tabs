@@ -5,28 +5,28 @@
 ;;  Package-Requires: ((emacs "27.1") (all-the-icons "5.0.0"))
 ;;  Keywords: convenience, tabs, ui
 ;;
-;;  “Пустота полезна, именно ею пользуемся.”           — 道德经, 11
+;;  “Emptiness is useful; it is what we use.”           — Dao De Jing, 11
 
 ;;; Commentary:
 
-;;  pro-tabs 2.0 предоставляет единообразное, минималистичное и
-;;  переиспользуемое оформление tab-bar и tab-line.  Весь рендеринг
-;;  сосредоточен в чистых функциях, a side-effects живут только в
-;;  =pro-tabs-mode'.
+;;  pro-tabs 2.0 provides a unified, minimalistic and reusable design
+;;  for tab-bar and tab-line. All rendering is concentrated in pure
+;;  functions, and all side-effects live only in =pro-tabs-mode'.
 ;;
-;;  Главное новшество:
-;;    • два глобальных фейса  =pro-tabs-active-face'   и
-;;                             =pro-tabs-inactive-face'
-;;      на которые *наследуются* все штатные лица tab-bar / tab-line.
-;;    • единый генератор волны  =pro-tabs--wave'  (direction 'left / 'right).
-;;    • единая функция форматирования    =pro-tabs--format'
-;;      с thin wrappers для tab-bar и tab-line.
+;;  Main innovations:
+;;    • Two global faces: =pro-tabs-active-face' and
+;;                        =pro-tabs-inactive-face'
+;;      to which *all* built-in tab-bar / tab-line faces *inherit* from.
+;;    • A single wave generator  =pro-tabs--wave'
+;;      (direction 'left / 'right).
+;;    • A single formatting function   =pro-tabs--format'
+;;      with thin wrappers for tab-bar and tab-line.
 ;;
-;;  Настройка:
+;;  Setup:
 ;;      (require 'pro-tabs)
-;;      (pro-tabs-mode 1)        ; включить
+;;      (pro-tabs-mode 1)        ; enable
 ;;
-;;  Всё остальное – через M-x customize-group RET pro-tabs RET.
+;;  Everything else – via M-x customize-group RET pro-tabs RET.
 
 ;;; Code:
 
@@ -35,7 +35,7 @@
 (require 'tab-line)
 (require 'color)
 (require 'cl-lib)                       ; cl-mapcar, cl-some, …
-;; all-the-icons теперь опционален
+;; all-the-icons is now optional
 (ignore-errors (require 'all-the-icons nil t))
 
 ;; -------------------------------------------------------------------
@@ -72,20 +72,20 @@ existing ones."
   "Hook of providers returning an icon string.
 
 Each function gets (BUFFER-OR-MODE BACKEND) and must return either
-a propertized string (icon) или nil.  Провайдеры вызываются по
-порядку; первый ненулевой результат используется.
+a propertized string (icon) or nil.  Providers are called in order;
+the first non-nil result is used.
 
-Пользователь может добавить свои функции:
+The user can add their own functions:
     (add-hook 'pro-tabs-icon-functions #'my-provider)
 
-По умолчанию, если установлен `all-the-icons', подключается
-встроенный провайдер `pro-tabs--icon-provider-all-the-icons', а в
-конце списка добавляется простой fallback."
+By default, if `all-the-icons' is installed, the built-in provider
+`pro-tabs--icon-provider-all-the-icons' is connected, and in the end a
+simple fallback is added."
   :type 'hook
   :group 'pro-tabs)
 
 (defun pro-tabs--icon-provider-all-the-icons (buffer-or-mode backend)
-  "Провайдер иконок на базе `all-the-icons' (если доступен)."
+  "Icon provider based on `all-the-icons' (if available)."
   (when (featurep 'all-the-icons)
     (let* ((mode (cond
                   ((bufferp buffer-or-mode)
@@ -134,19 +134,19 @@ a propertized string (icon) или nil.  Провайдеры вызываютс
       (when (stringp icon)
         icon))))
 
-;; Простейший fallback-провайдер (unicodes/emoji)
+;; The simplest fallback provider (unicodes/emoji)
 (defun pro-tabs--icon-provider-fallback (_buffer-or-mode backend)
-  "Всегда возвращает неброский bullet, если другие провайдеры не сработали."
+  "Always returns a subtle bullet if other providers did not work."
   (let ((icon "•"))
-    ;; Обеспечим тот же размер и центрирование что и у 'all-the-icons'
+    ;; Ensure the same size and centering as 'all-the-icons'
     (propertize icon
                 'face (if (eq backend 'tab-bar) 'tab-bar-tab-inactive 'tab-line-tab-inactive)
                 'ascent 'center
                 'height 0.75)))
 
-;; Регистрация встроенных провайдеров
+;; Register built-in providers
 (add-hook 'pro-tabs-icon-functions #'pro-tabs--icon-provider-all-the-icons)
-(add-hook 'pro-tabs-icon-functions #'pro-tabs--icon-provider-fallback t) ; t ⇒ добавить в конец
+(add-hook 'pro-tabs-icon-functions #'pro-tabs--icon-provider-fallback t) ; t ⇒ add to end
 
 ;; -------------------------------------------------------------------
 ;; Pure helpers
@@ -332,7 +332,7 @@ calculating any colours or backgrounds."
       (list 'image :type 'xpm :data (plist-get (cdr img) :data) :ascent 'center :face face1))))
 
 (defun pro-tabs--icon (buffer-or-mode backend)
-  "Возвращает первую ненулевую иконку из `pro-tabs-icon-functions'."
+  "Returns the first non-nil icon from `pro-tabs-icon-functions'."
   (when pro-tabs-enable-icons
     (cl-some (lambda (fn) (funcall fn buffer-or-mode backend))
              pro-tabs-icon-functions)))
@@ -456,7 +456,7 @@ BACKEND ∈ {'tab-bar,'tab-line}.  ITEM is alist(tab) or buffer."
               (progn
                 (define-key tab-line-mode-map (kbd (format "s-%d" num))
                             (lambda () (interactive)
-                              ;; Используем совместимый с emacs API переход по индексу (см. ниже)
+                              ;; Use an Emacs API compatible jump by index (see below)
                               (let* ((index (if (zerop num) 10 num))
                                      (buffers (funcall tab-line-tabs-function))
                                      (buf (nth (1- index) buffers)))
@@ -472,8 +472,8 @@ BACKEND ∈ {'tab-bar,'tab-line}.  ITEM is alist(tab) or buffer."
 
         (unless (boundp 'minor-mode-map-alist)
           (setq minor-mode-map-alist (list)))
-        ;; Добавляем карту pro-tabs *после* стандартных, чтобы `tab-line-mode-map'
-        ;; имела более высокий приоритет и могла перекрывать глобальные биндинги.
+        ;; Add the pro-tabs keymap *after* the standard ones, so that `tab-line-mode-map'
+        ;; has higher priority and can override global bindings.
         (add-to-list 'minor-mode-map-alist
                      (cons 'pro-tabs-mode pro-tabs-keymap) t) ; t ⇒ append
 

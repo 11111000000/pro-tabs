@@ -112,7 +112,10 @@ simple fallback is added."
                    (string-match-p "Google-chrome" (buffer-name buffer-or-mode)))
               (ignore-errors (all-the-icons-faicon "chrome" :v-adjust 0 :height 0.75)))
              ((memq mode term-modes)
-              (ignore-errors (all-the-icons-alltheicon "terminal" :height 0.75)))
+              (ignore-errors
+                (all-the-icons-alltheicon "terminal"
+                                          :height 0.75
+                                          :v-adjust 0.03)))
              ((eq mode 'dired-mode)
               (ignore-errors (all-the-icons-octicon "file-directory" :v-adjust 0.0 :height 0.75)))
              ((eq mode 'org-mode)

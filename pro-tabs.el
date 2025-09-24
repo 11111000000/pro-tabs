@@ -128,8 +128,8 @@ simple fallback is added."
               (ignore-errors (all-the-icons-faicon "windows" :v-adjust -0.12 :height 0.75)))
              (t
               (let* ((maybe (all-the-icons-icon-for-mode mode :height 0.75))
-                     (fallback (or (ignore-errors (all-the-icons-octicon "file" :height 0.75))
-                                   (ignore-errors (all-the-icons-octicon "file-text" :height 0.75))
+                     (fallback (or (ignore-errors (all-the-icons-octicon "file" :height 0.75 :v-adjust 0.05))
+                                   (ignore-errors (all-the-icons-octicon "file-text" :height 0.75  :v-adjust 0.07))
                                    "•")))
                 (if (stringp maybe)
                     maybe
@@ -234,6 +234,7 @@ calculating any colours or backgrounds."
                      'face-defface-spec))
     ;; Reapply inheritance to built-in faces and refresh UI
     (pro-tabs--inherit-builtins)
+    (pro-tabs--clear-caches)
     (when (featurep 'tab-bar)
       (ignore-errors (tab-bar--update-tab-bar-lines)))
     (when (bound-and-true-p tab-line-mode)
@@ -262,83 +263,117 @@ calculating any colours or backgrounds."
   (with-selected-frame frame
     (tab-bar-mode 1)))
 
+;; -------------------------------------------------------------------
+;; Caches for images and icons
+;; -------------------------------------------------------------------
+(defvar pro-tabs--wave-image-cache (make-hash-table :test 'equal)
+  "Internal cache for wave image display specs. Keys are (DIR H C0 C1 MIX).")
+
+(defvar pro-tabs--icon-cache-by-buffer (make-hash-table :test 'eq :weakness 'key)
+  "Internal cache for icons per buffer. Weak keys so dead buffers are collected.")
+
+(defvar pro-tabs--icon-cache-by-mode (make-hash-table :test 'equal)
+  "Internal cache for icons per (MODE . BACKEND).")
+
+(defconst pro-tabs--wave-template
+  [ "21111111111"
+    "00111111111"
+    "00011111111"
+    "00021111111"
+    "00001111111"
+    "00002111111"
+    "00000111111"
+    "00000111111"
+    "00000211111"
+    "00000021111"
+    "00000001111"
+    "00000001111"
+    "00000002111"
+    "00000000111"
+    "00000000211"
+    "00000000002"]
+  "Base 16-row template for wave shapes; will be resampled to requested height.")
+
+(defun pro-tabs--wave--lines (height mirror)
+  "Return list of strings representing wave rows resampled to HEIGHT.
+If MIRROR is non-nil, horizontally flip each row."
+  (let ((lines nil)
+        (len (length pro-tabs--wave-template)))
+    (dotimes (i height)
+      (let* ((orig (aref pro-tabs--wave-template (floor (* i (/ (float len) height)))))
+             (row  (if mirror
+                       (apply #'string (nreverse (string-to-list orig)))
+                     orig)))
+        (push row lines)))
+    (nreverse lines)))
+
+(defun pro-tabs--wave-image-spec (dir face1 face2 &optional height)
+  "Return cached display spec for wave separator.
+DIR is 'left or 'right. FACE1 and FACE2 define colours as in original functions."
+  (let* ((h (or height (frame-char-height)))
+         (mirror (eq dir 'right))
+         ;; Palettes based on direction (match old functions)
+         (c0 (if (eq dir 'left)
+                 (pro-tabs--safe-face-background face2)
+               (pro-tabs--safe-face-background face1)))
+         (c1 (if (eq dir 'left)
+                 (pro-tabs--safe-face-background face1)
+               (pro-tabs--safe-face-background face2)))
+         (mix (if (eq dir 'left)
+                  (pro-tabs--safe-interpolated-color face2 face1)
+                (pro-tabs--safe-interpolated-color face1 face2)))
+         (face-for-image (if (eq dir 'left) face2 face1))
+         (key (list dir h c0 c1 mix))
+         (cached (gethash key pro-tabs--wave-image-cache)))
+    (if cached
+        cached
+      (let* ((lines (pro-tabs--wave--lines h mirror))
+             (xpm (concat
+                   "/* XPM */\nstatic char * wave_xpm[] = {\n"
+                   (format "\"11 %d 3 1\", " h)
+                   "\"0 c " c0
+                   "\", \"1 c " c1
+                   "\", \"2 c " mix
+                   "\",\n"
+                   (mapconcat (lambda (l) (format "\"%s\"," l)) lines "\n")
+                   "\"};\n"))
+             (img (create-image xpm 'xpm t :ascent 'center))
+             (spec (list 'image :type 'xpm
+                         :data (plist-get (cdr img) :data)
+                         :ascent 'center
+                         :face face-for-image)))
+        (puthash key spec pro-tabs--wave-image-cache)
+        spec))))
+
+(defun pro-tabs--clear-caches ()
+  "Clear internal caches used by pro-tabs rendering."
+  (clrhash pro-tabs--wave-image-cache)
+  (clrhash pro-tabs--icon-cache-by-buffer)
+  (clrhash pro-tabs--icon-cache-by-mode))
+
 (defun pro-tabs--wave-left (face1 face2 &optional height)
   "Return left wave XPM separator (pure function, FOR TAB-BAR)."
-  (let* ((height (or height (frame-char-height)))
-         (template [  "21111111111"
-                      "00111111111"
-                      "00011111111"
-                      "00021111111"
-                      "00001111111"
-                      "00002111111"
-                      "00000111111"
-                      "00000111111"
-                      "00000211111"
-                      "00000021111"
-                      "00000001111"
-                      "00000001111"
-                      "00000002111"
-                      "00000000111"
-                      "00000000211"
-                      "00000000002"])
-         (lines nil))
-    (dotimes (i height)
-      (push (aref template (floor (* i (/ (float (length template)) height)))) lines))
-    (let ((img (create-image
-                (concat
-                 "/* XPM */\nstatic char * wave_left_xpm[] = {\n"
-                 (format "\"11 %d 3 1\", " height)
-                 "\"0 c " (pro-tabs--safe-face-background face2)
-                 "\", \"1 c " (pro-tabs--safe-face-background face1)
-                 "\", \"2 c " (pro-tabs--safe-interpolated-color face2 face1)
-                 "\",\n"
-                 (mapconcat (lambda (l) (format "\"%s\"," l)) (nreverse lines) "\n")
-                 "\"};\n")
-                'xpm t :ascent 'center)))
-      (list 'image :type 'xpm :data (plist-get (cdr img) :data) :ascent 'center :face face2))))
+  (pro-tabs--wave-image-spec 'left face1 face2 height))
 
 (defun pro-tabs--wave-right (face1 face2 &optional height)
   "Return right wave XPM separator (mirror of left, FOR TAB-BAR)."
-  (let* ((height (or height (frame-char-height)))
-         (template [  "21111111111"
-                      "00111111111"
-                      "00011111111"
-                      "00021111111"
-                      "00001111111"
-                      "00002111111"
-                      "00000111111"
-                      "00000111111"
-                      "00000211111"
-                      "00000021111"
-                      "00000001111"
-                      "00000001111"
-                      "00000002111"
-                      "00000000111"
-                      "00000000211"
-                      "00000000002"])
-         (lines nil))
-    (dotimes (i height)
-      (let* ((orig (aref template (floor (* i (/ (float (length template)) height)))))
-             (mirrored (apply #'string (nreverse (string-to-list orig)))))
-        (push mirrored lines)))
-    (let ((img (create-image
-                (concat
-                 "/* XPM */\nstatic char * wave_right_xpm[] = {\n"
-                 (format "\"11 %d 3 1\", " height)
-                 "\"0 c " (pro-tabs--safe-face-background face1)
-                 "\", \"1 c " (pro-tabs--safe-face-background face2)
-                 "\", \"2 c " (pro-tabs--safe-interpolated-color face1 face2)
-                 "\",\n"
-                 (mapconcat (lambda (l) (format "\"%s\"," l)) (nreverse lines) "\n")
-                 "\"};\n")
-                'xpm t :ascent 'center)))
-      (list 'image :type 'xpm :data (plist-get (cdr img) :data) :ascent 'center :face face1))))
+  (pro-tabs--wave-image-spec 'right face1 face2 height))
 
 (defun pro-tabs--icon (buffer-or-mode backend)
-  "Returns the first non-nil icon from `pro-tabs-icon-functions'."
+  "Return cached icon for BUFFER-OR-MODE and BACKEND."
   (when pro-tabs-enable-icons
-    (cl-some (lambda (fn) (funcall fn buffer-or-mode backend))
-             pro-tabs-icon-functions)))
+    (if (bufferp buffer-or-mode)
+        (or (gethash buffer-or-mode pro-tabs--icon-cache-by-buffer)
+            (let ((val (cl-some (lambda (fn) (funcall fn buffer-or-mode backend))
+                                pro-tabs-icon-functions)))
+              (puthash buffer-or-mode val pro-tabs--icon-cache-by-buffer)
+              val))
+      (let* ((key (cons buffer-or-mode backend)))
+        (or (gethash key pro-tabs--icon-cache-by-mode)
+            (let ((val (cl-some (lambda (fn) (funcall fn buffer-or-mode backend))
+                                pro-tabs-icon-functions)))
+              (puthash key val pro-tabs--icon-cache-by-mode)
+              val))))))
 
 (defun pro-tabs--shorten (str len)
   (if (> (length str) len)

@@ -160,19 +160,29 @@ simple fallback is added."
   (let ((color (and (symbolp face) (facep face) (face-background face nil t))))
     (if (and color (not (equal color ""))) color "None")))
 
+(defvar pro-tabs--color-blend-cache (make-hash-table :test 'equal)
+  "Cache for blended colors between FACE1 and FACE2.")
+
 (defun pro-tabs--safe-interpolated-color (face1 face2)
-  "Return the blended color between FACE1 and FACE2, as #RRGGBB or \"None\"."
-  (let* ((c1 (pro-tabs--safe-face-background face1))
-         (c2 (pro-tabs--safe-face-background face2)))
-    (condition-case nil
-        (if (and (not (equal c1 "None"))
-                 (not (equal c2 "None")))
-            (apply 'color-rgb-to-hex
-                   (cl-mapcar (lambda (a b) (/ (+ a b) 2))
-                              (color-name-to-rgb c1)
-                              (color-name-to-rgb c2)))
-          "None")
-      (error "None"))))
+  "Return the blended color between FACE1 and FACE2, as #RRGGBB or \"None\".
+Uses cache for performance."
+  (let* ((key (list face1 face2))
+         (cached (gethash key pro-tabs--color-blend-cache)))
+    (if cached
+        cached
+      (let* ((c1 (pro-tabs--safe-face-background face1))
+             (c2 (pro-tabs--safe-face-background face2))
+             (val (condition-case nil
+                      (if (and (not (equal c1 "None"))
+                               (not (equal c2 "None")))
+                          (apply 'color-rgb-to-hex
+                                 (cl-mapcar (lambda (a b) (/ (+ a b) 2))
+                                            (color-name-to-rgb c1)
+                                            (color-name-to-rgb c2)))
+                        "None")
+                    (error "None"))))
+        (puthash key val pro-tabs--color-blend-cache)
+        val))))
 
 
 ;; -------------------------------------------------------------------
@@ -214,7 +224,8 @@ calculating any colours or backgrounds."
   "Internal flag to prevent double-installing theme tracking.")
 
 (defun pro-tabs--refresh-faces (&rest _)
-  "Recompute and apply pro-tabs faces based on the current theme."
+  "Recompute and apply pro-tabs faces based on the current theme.
+Also rebuild cached color blends and wave image specs."
   (let* ((bar-bg (or (face-attribute 'tab-bar :background nil t)
                      (face-attribute 'default :background nil t)))
          (def-bg (face-attribute 'default :background nil t))
@@ -235,6 +246,7 @@ calculating any colours or backgrounds."
     ;; Reapply inheritance to built-in faces and refresh UI
     (pro-tabs--inherit-builtins)
     (pro-tabs--clear-caches)
+    (pro-tabs--precompute-waves)
     (when (featurep 'tab-bar)
       (ignore-errors (tab-bar--update-tab-bar-lines)))
     (when (bound-and-true-p tab-line-mode)
@@ -307,49 +319,110 @@ If MIRROR is non-nil, horizontally flip each row."
         (push row lines)))
     (nreverse lines)))
 
+(defvar pro-tabs--precalculated-waves nil
+  "Precalculated most frequent wave image specs for (backend state dir height).")
+
+(defun pro-tabs--precompute-waves ()
+  "Precompute and cache image specs for common tab states, directions and heights.
+Populates `pro-tabs--precalculated-waves'."
+  (let* ((heights `((tab-bar . ,pro-tabs-tab-bar-height)
+                    (tab-line . ,pro-tabs-tab-line-height)))
+         (backends '(tab-bar tab-line))
+         (dirs '(left right))
+         (states '((active . pro-tabs-active-face)
+                   (inactive . pro-tabs-inactive-face)))
+         table)
+    (dolist (backend backends)
+      (dolist (dir dirs)
+        (dolist (state states)
+          (let* ((height (alist-get backend heights))
+                 (face1 (if (eq backend 'tab-bar)
+                            (if (eq dir 'left)
+                                (cdr state) ; foreground
+                              'tab-bar)   ; background
+                          (if (eq dir 'left)
+                              (cdr state)
+                            'tab-line)))
+                 (face2 (if (eq backend 'tab-bar)
+                            (if (eq dir 'left)
+                                'tab-bar
+                              (cdr state))
+                          (if (eq dir 'left)
+                              'tab-line
+                            (cdr state))))
+                 (key (list backend (car state) dir height))
+                 ;; image spec, call original function
+                 (spec (pro-tabs--wave-image-spec dir face1 face2 height)))
+            (push (cons key spec) table)))))
+    (setq pro-tabs--precalculated-waves (nreverse table))))
+
+(defun pro-tabs--find-precalculated-wave (backend state dir height)
+  "Lookup precomputed wave spec or fallback."
+  (alist-get (list backend state dir height) pro-tabs--precalculated-waves nil nil #'equal))
+
 (defun pro-tabs--wave-image-spec (dir face1 face2 &optional height)
   "Return cached display spec for wave separator.
-DIR is 'left or 'right. FACE1 and FACE2 define colours as in original functions."
-  (let* ((h (or height (frame-char-height)))
-         (mirror (eq dir 'right))
-         ;; Palettes based on direction (match old functions)
-         (c0 (if (eq dir 'left)
-                 (pro-tabs--safe-face-background face2)
-               (pro-tabs--safe-face-background face1)))
-         (c1 (if (eq dir 'left)
-                 (pro-tabs--safe-face-background face1)
-               (pro-tabs--safe-face-background face2)))
-         (mix (if (eq dir 'left)
-                  (pro-tabs--safe-interpolated-color face2 face1)
-                (pro-tabs--safe-interpolated-color face1 face2)))
-         (face-for-image (if (eq dir 'left) face2 face1))
-         (key (list dir h c0 c1 mix))
-         (cached (gethash key pro-tabs--wave-image-cache)))
-    (if cached
-        cached
-      (let* ((lines (pro-tabs--wave--lines h mirror))
-             (xpm (concat
-                   "/* XPM */\nstatic char * wave_xpm[] = {\n"
-                   (format "\"11 %d 3 1\", " h)
-                   "\"0 c " c0
-                   "\", \"1 c " c1
-                   "\", \"2 c " mix
-                   "\",\n"
-                   (mapconcat (lambda (l) (format "\"%s\"," l)) lines "\n")
-                   "\"};\n"))
-             (img (create-image xpm 'xpm t :ascent 'center))
-             (spec (list 'image :type 'xpm
-                         :data (plist-get (cdr img) :data)
-                         :ascent 'center
-                         :face face-for-image)))
-        (puthash key spec pro-tabs--wave-image-cache)
-        spec))))
+If precomputed, use quick lookup."
+  (let* ((backend (cond
+                   ((eq face1 'pro-tabs-active-face) 'tab-bar)
+                   ((eq face1 'pro-tabs-inactive-face) 'tab-bar)
+                   ((eq face1 'tab-bar) 'tab-bar)
+                   ((eq face1 'tab-line) 'tab-line)
+                   ((eq face2 'tab-bar) 'tab-bar)
+                   ((eq face2 'tab-line) 'tab-line)
+                   ;; fallback
+                   (t nil)))
+         (state (cond
+                 ((eq face1 'pro-tabs-active-face) 'active)
+                 ((eq face1 'pro-tabs-inactive-face) 'inactive)
+                 ((eq face2 'pro-tabs-active-face) 'active)
+                 ((eq face2 'pro-tabs-inactive-face) 'inactive)
+                 (t nil)))
+         (h (or height (frame-char-height)))
+         (try (and backend state (pro-tabs--find-precalculated-wave backend state dir h))))
+    (or try
+        ;; Fallback as before
+        (let* ((mirror (eq dir 'right))
+               ;; Palettes based on direction (match old functions)
+               (c0 (if (eq dir 'left)
+                       (pro-tabs--safe-face-background face2)
+                     (pro-tabs--safe-face-background face1)))
+               (c1 (if (eq dir 'left)
+                       (pro-tabs--safe-face-background face1)
+                     (pro-tabs--safe-face-background face2)))
+               (mix (if (eq dir 'left)
+                        (pro-tabs--safe-interpolated-color face2 face1)
+                      (pro-tabs--safe-interpolated-color face1 face2)))
+               (face-for-image (if (eq dir 'left) face2 face1))
+               (key (list dir h c0 c1 mix))
+               (cached (gethash key pro-tabs--wave-image-cache)))
+          (if cached
+              cached
+            (let* ((lines (pro-tabs--wave--lines h mirror))
+                   (xpm (concat
+                         "/* XPM */\nstatic char * wave_xpm[] = {\n"
+                         (format "\"11 %d 3 1\", " h)
+                         "\"0 c " c0
+                         "\", \"1 c " c1
+                         "\", \"2 c " mix
+                         "\",\n"
+                         (mapconcat (lambda (l) (format "\"%s\"," l)) lines "\n")
+                         "\"};\n"))
+                   (img (create-image xpm 'xpm t :ascent 'center))
+                   (spec (list 'image :type 'xpm
+                               :data (plist-get (cdr img) :data)
+                               :ascent 'center
+                               :face face-for-image)))
+              (puthash key spec pro-tabs--wave-image-cache)
+              spec))))))
 
 (defun pro-tabs--clear-caches ()
   "Clear internal caches used by pro-tabs rendering."
   (clrhash pro-tabs--wave-image-cache)
   (clrhash pro-tabs--icon-cache-by-buffer)
-  (clrhash pro-tabs--icon-cache-by-mode))
+  (clrhash pro-tabs--icon-cache-by-mode)
+  (clrhash pro-tabs--color-blend-cache)
+  (setq pro-tabs--precalculated-waves nil))
 
 (defun pro-tabs--wave-left (face1 face2 &optional height)
   "Return left wave XPM separator (pure function, FOR TAB-BAR)."

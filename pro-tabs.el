@@ -234,9 +234,8 @@ calculating any colours or backgrounds."
 (defun pro-tabs--refresh-faces (&rest _)
   "Recompute and apply pro-tabs faces based on the current theme.
 Also rebuild cached color blends and wave image specs."
-  (let* ((def-bg (or (face-background 'default nil t)
-                     (frame-parameter nil 'background-color)
-                     "#ffffff"))
+  (let* ((def-bg (or (face-background 'default nil t)                     
+                     "#777777"))
          (bar-bg (or (ignore-errors (color-darken-name def-bg pro-tabs-tab-bar-darken-percent))
                      def-bg))
          (inactive-mix (ignore-errors

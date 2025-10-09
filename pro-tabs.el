@@ -34,7 +34,7 @@
 (require 'tab-bar)
 (require 'tab-line)
 (require 'color)
-(require 'cl-lib)                       ; cl-mapcar, cl-some, …
+;; (require 'cl-lib)                       ; cl-mapcar, cl-some, … ; already required above
 ;; all-the-icons is now optional
 (ignore-errors (require 'all-the-icons nil t))
 
@@ -56,6 +56,10 @@
 
 (defcustom pro-tabs-tab-line-height 18
   "Height in px used for wave on tab-line." :type 'integer :group 'pro-tabs)
+
+(defcustom pro-tabs-tab-bar-darken-percent 30
+  "How much darker than `default' the tab-bar track should be."
+  :type 'integer :group 'pro-tabs)
 
 (defcustom pro-tabs-setup-keybindings t
   "When non-nil, pro-tabs will install its default keybindings (s-0…s-9)
@@ -226,13 +230,15 @@ calculating any colours or backgrounds."
 (defun pro-tabs--refresh-faces (&rest _)
   "Recompute and apply pro-tabs faces based on the current theme.
 Also rebuild cached color blends and wave image specs."
-  (let* ((bar-bg (or (face-attribute 'tab-bar :background nil t)
-                     (face-attribute 'default :background nil t)))
-         (def-bg (face-attribute 'default :background nil t))
-         (inactive-mix (pro-tabs--safe-interpolated-color 'tab-bar 'default))
-         (inactive-bg (if (and inactive-mix (not (equal inactive-mix "None")))
-                          inactive-mix
-                        bar-bg)))
+  (let* ((def-bg (face-attribute 'default :background nil t))
+         (bar-bg (or (ignore-errors (color-darken-name def-bg pro-tabs-tab-bar-darken-percent))
+                     def-bg))
+         (inactive-mix (ignore-errors
+                         (apply 'color-rgb-to-hex
+                                (cl-mapcar (lambda (a b) (/ (+ a b) 2.0))
+                                           (color-name-to-rgb bar-bg)
+                                           (color-name-to-rgb def-bg)))))
+         (inactive-bg (or inactive-mix bar-bg)))
     (when (fboundp 'face-spec-set)
       (face-spec-set 'pro-tabs-face
                      `((t :background ,bar-bg))
@@ -265,6 +271,12 @@ Also rebuild cached color blends and wave image specs."
 
 ;; Ensure tracking is active after load
 (pro-tabs--install-theme-tracking)
+
+;;;###autoload
+(defun pro-tabs-refresh ()
+  "Manually recompute pro-tabs faces from current theme and refresh UI."
+  (interactive)
+  (pro-tabs--refresh-faces))
 
 
 ;; -------------------------------------------------------------------
@@ -325,8 +337,8 @@ If MIRROR is non-nil, horizontally flip each row."
 (defun pro-tabs--precompute-waves ()
   "Precompute and cache image specs for common tab states, directions and heights.
 Populates `pro-tabs--precalculated-waves'."
-  (let* ((heights `((tab-bar . ,pro-tabs-tab-bar-height)
-                    (tab-line . ,pro-tabs-tab-line-height)))
+  (let* ((heights `((tab-bar . ,(1+ pro-tabs-tab-bar-height))
+                    (tab-line . ,(1+ pro-tabs-tab-line-height))))
          (backends '(tab-bar tab-line))
          (dirs '(left right))
          (states '((active . pro-tabs-active-face)
@@ -433,20 +445,28 @@ If precomputed, use quick lookup."
   (pro-tabs--wave-image-spec 'right face1 face2 height))
 
 (defun pro-tabs--icon (buffer-or-mode backend)
-  "Return cached icon for BUFFER-OR-MODE and BACKEND."
+  "Return cached icon for BUFFER-OR-MODE and BACKEND.
+Silences messages during provider calls and protects against provider errors."
   (when pro-tabs-enable-icons
-    (if (bufferp buffer-or-mode)
-        (or (gethash buffer-or-mode pro-tabs--icon-cache-by-buffer)
-            (let ((val (cl-some (lambda (fn) (funcall fn buffer-or-mode backend))
-                                pro-tabs-icon-functions)))
-              (puthash buffer-or-mode val pro-tabs--icon-cache-by-buffer)
-              val))
-      (let* ((key (cons buffer-or-mode backend)))
-        (or (gethash key pro-tabs--icon-cache-by-mode)
-            (let ((val (cl-some (lambda (fn) (funcall fn buffer-or-mode backend))
-                                pro-tabs-icon-functions)))
-              (puthash key val pro-tabs--icon-cache-by-mode)
-              val))))))
+    (let ((inhibit-message t)) ; some providers or deps may call `message'
+      (if (bufferp buffer-or-mode)
+          (or (gethash buffer-or-mode pro-tabs--icon-cache-by-buffer)
+              (let ((val (cl-some (lambda (fn)
+                                    (condition-case nil
+                                        (funcall fn buffer-or-mode backend)
+                                      (error nil)))
+                                  pro-tabs-icon-functions)))
+                (puthash buffer-or-mode val pro-tabs--icon-cache-by-buffer)
+                val))
+        (let* ((key (cons buffer-or-mode backend)))
+          (or (gethash key pro-tabs--icon-cache-by-mode)
+              (let ((val (cl-some (lambda (fn)
+                                    (condition-case nil
+                                        (funcall fn buffer-or-mode backend)
+                                      (error nil)))
+                                  pro-tabs-icon-functions)))
+                (puthash key val pro-tabs--icon-cache-by-mode)
+                val)))))))
 
 (defun pro-tabs--shorten (str len)
   (if (> (length str) len)
@@ -556,25 +576,15 @@ BACKEND ∈ {'tab-bar,'tab-line}.  ITEM is alist(tab) or buffer."
         ;; faces
         (pro-tabs--inherit-builtins)
 
-        ;; s-0 … s-9 quick select (respect existing bindings, make customizable)
+        ;; s-0 … s-9 quick select (tab-bar only)
         (defvar pro-tabs-keymap (make-sparse-keymap)
           "Keymap for pro-tabs quick selection. Customizable.")
         (when pro-tabs-setup-keybindings
           (dotimes (i 10)
             (let* ((num i)
                    (k (kbd (format "s-%d" num))))
-              ;; Only bind if unbound or explicitly allowed by user
-              (progn
-                (define-key tab-line-mode-map (kbd (format "s-%d" num))
-                            (lambda () (interactive)
-                              ;; Use an Emacs API compatible jump by index (see below)
-                              (let* ((index (if (zerop num) 10 num))
-                                     (buffers (funcall tab-line-tabs-function))
-                                     (buf (nth (1- index) buffers)))
-                                (when buf
-                                  (switch-to-buffer buf)))))
-                (define-key pro-tabs-keymap k
-                            (lambda () (interactive) (tab-bar-select-tab num))))))
+              (define-key pro-tabs-keymap k
+                          (lambda () (interactive) (tab-bar-select-tab num)))))
           (define-key tab-bar-mode-map (kbd "s-<tab>")         #'tab-bar-switch-to-next-tab)
           (define-key tab-bar-mode-map (kbd "s-<iso-lefttab>") #'tab-bar-switch-to-prev-tab)
           (define-key tab-line-mode-map (kbd "s-<tab>")         #'tab-line-switch-to-next-tab)

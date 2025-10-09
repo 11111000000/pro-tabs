@@ -57,7 +57,7 @@
 (defcustom pro-tabs-tab-line-height 18
   "Height in px used for wave on tab-line." :type 'integer :group 'pro-tabs)
 
-(defcustom pro-tabs-tab-bar-darken-percent 30
+(defcustom pro-tabs-tab-bar-darken-percent 50
   "How much darker than `default' the tab-bar track should be."
   :type 'integer :group 'pro-tabs)
 
@@ -217,11 +217,15 @@ calculating any colours or backgrounds."
                   (tab-line-tab-inactive . pro-tabs-inactive-face)
                   (tab-line              . pro-tabs-face)))
     (when (facep (car spec))
-      (set-face-attribute (car spec) nil
-                          :inherit (cdr spec)
-                          :box nil
-                          :background 'unspecified
-                          :foreground 'unspecified))))
+      (if (memq (car spec) '(tab-bar tab-line))
+          (set-face-attribute (car spec) nil
+                              :inherit (cdr spec)
+                              :box nil)
+        (set-face-attribute (car spec) nil
+                            :inherit (cdr spec)
+                            :box nil
+                            :background 'unspecified
+                            :foreground 'unspecified)))))
 
 ;; Theme tracking and dynamic recomputation of faces
 (defvar pro-tabs--theme-tracking-installed nil
@@ -230,7 +234,9 @@ calculating any colours or backgrounds."
 (defun pro-tabs--refresh-faces (&rest _)
   "Recompute and apply pro-tabs faces based on the current theme.
 Also rebuild cached color blends and wave image specs."
-  (let* ((def-bg (face-attribute 'default :background nil t))
+  (let* ((def-bg (or (face-background 'default nil t)
+                     (frame-parameter nil 'background-color)
+                     "#ffffff"))
          (bar-bg (or (ignore-errors (color-darken-name def-bg pro-tabs-tab-bar-darken-percent))
                      def-bg))
          (inactive-mix (ignore-errors
@@ -248,6 +254,9 @@ Also rebuild cached color blends and wave image specs."
                      'face-defface-spec)
       (face-spec-set 'pro-tabs-inactive-face
                      `((t :inherit pro-tabs-face :background ,inactive-bg))
+                     'face-defface-spec)
+      (face-spec-set 'tab-bar
+                     `((t :inherit pro-tabs-face :background ,bar-bg))
                      'face-defface-spec))
     ;; Reapply inheritance to built-in faces and refresh UI
     (pro-tabs--inherit-builtins)

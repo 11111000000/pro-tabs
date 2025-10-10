@@ -234,7 +234,7 @@ calculating any colours or backgrounds."
 (defun pro-tabs--refresh-faces (&rest _)
   "Recompute and apply pro-tabs faces based on the current theme.
 Also rebuild cached color blends and wave image specs."
-  (let* ((def-bg (or (face-background 'default nil t)                     
+  (let* ((def-bg (or (face-background 'default nil t)
                      "#777777"))
          (bar-bg (or (ignore-errors (color-darken-name def-bg pro-tabs-tab-bar-darken-percent))
                      def-bg))
@@ -277,8 +277,7 @@ Also rebuild cached color blends and wave image specs."
     ;; Run once at load to sync with current theme
     (pro-tabs--refresh-faces)))
 
-;; Ensure tracking is active after load
-(pro-tabs--install-theme-tracking)
+
 
 ;;;###autoload
 (defun pro-tabs-refresh ()
@@ -403,13 +402,13 @@ If precomputed, use quick lookup."
     (or try
         ;; Fallback as before
         (let* ((mirror (eq dir 'right))
-               ;; Palettes based on direction (match old functions)
+               ;; Palettes based on direction (swap to fix negative/inverted colors)
                (c0 (if (eq dir 'left)
-                       (pro-tabs--safe-face-background face2)
-                     (pro-tabs--safe-face-background face1)))
-               (c1 (if (eq dir 'left)
                        (pro-tabs--safe-face-background face1)
                      (pro-tabs--safe-face-background face2)))
+               (c1 (if (eq dir 'left)
+                       (pro-tabs--safe-face-background face2)
+                     (pro-tabs--safe-face-background face1)))
                (mix (if (eq dir 'left)
                         (pro-tabs--safe-interpolated-color face2 face1)
                       (pro-tabs--safe-interpolated-color face1 face2)))
@@ -634,6 +633,9 @@ BACKEND ∈ {'tab-bar,'tab-line}.  ITEM is alist(tab) or buffer."
   (interactive)
   (kill-this-buffer)
   (tab-close))
+
+;; Ensure tracking is active after load
+(pro-tabs--install-theme-tracking)
 
 (provide 'pro-tabs)
 ;;; pro-tabs.el ends here

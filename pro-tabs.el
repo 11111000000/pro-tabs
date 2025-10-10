@@ -224,8 +224,7 @@ calculating any colours or backgrounds."
         (set-face-attribute (car spec) nil
                             :inherit (cdr spec)
                             :box nil
-                            :background 'unspecified
-                            :foreground 'unspecified)))))
+                            :background 'unspecified)))))
 
 ;; Theme tracking and dynamic recomputation of faces
 (defvar pro-tabs--theme-tracking-installed nil
@@ -255,6 +254,9 @@ Also rebuild cached color blends and wave image specs."
                      `((t :inherit pro-tabs-face :background ,inactive-bg))
                      'face-defface-spec)
       (face-spec-set 'tab-bar
+                     `((t :inherit pro-tabs-face :background ,bar-bg))
+                     'face-defface-spec)
+      (face-spec-set 'tab-line
                      `((t :inherit pro-tabs-face :background ,bar-bg))
                      'face-defface-spec))
     ;; Reapply inheritance to built-in faces and refresh UI
@@ -383,13 +385,11 @@ Populates `pro-tabs--precalculated-waves'."
   "Return cached display spec for wave separator.
 If precomputed, use quick lookup."
   (let* ((backend (cond
-                   ((eq face1 'pro-tabs-active-face) 'tab-bar)
-                   ((eq face1 'pro-tabs-inactive-face) 'tab-bar)
                    ((eq face1 'tab-bar) 'tab-bar)
                    ((eq face1 'tab-line) 'tab-line)
                    ((eq face2 'tab-bar) 'tab-bar)
                    ((eq face2 'tab-line) 'tab-line)
-                   ;; fallback
+                   ;; do not infer backend from pro-tabs faces; they are shared
                    (t nil)))
          (state (cond
                  ((eq face1 'pro-tabs-active-face) 'active)
@@ -507,9 +507,9 @@ BACKEND ∈ {'tab-bar,'tab-line}.  ITEM is alist(tab) or buffer."
             (h        pro-tabs-tab-line-height)
             (icon     (pro-tabs--icon buffer 'tab-line))
             (wave-r   (propertize " " 'display
-                                  (pro-tabs--wave-right face 'tab-line (+ 1 h))))
+                                  (pro-tabs--wave-right 'tab-line face (+ 1 h))))
             (wave-l   (propertize " " 'display
-                                  (pro-tabs--wave-left 'tab-line face (+ 1 h))))
+                                  (pro-tabs--wave-left face 'tab-line (+ 1 h))))
             (txt      (concat wave-r (or icon "") " " (buffer-name buffer) wave-l)))
        (add-face-text-property 0 (length txt) face t txt) txt))))
 

@@ -63,11 +63,19 @@
 
 (defcustom pro-tabs-setup-keybindings t
   "When non-nil, pro-tabs will install its default keybindings (s-0…s-9)
-for quick tab selection.  Set to nil before loading `pro-tabs' if you
+for quick tab selection.  Set to nil before loading =pro-tabs' if you
 prefer to manage those bindings yourself or if they conflict with
 existing ones."
   :type 'boolean
   :group 'pro-tabs)
+
+(defcustom pro-tabs-enable-waves t
+  "Render wave separators. Disable to reduce CPU usage in heavy redisplay."
+  :type 'boolean :group 'pro-tabs)
+
+(defcustom pro-tabs-format-cache-ttl 0.75
+  "Seconds to cache formatted tab strings to reduce re-computation during redisplay."
+  :type 'number :group 'pro-tabs)
 
 ;; -------------------------------------------------------------------
 ;; Icon provider abstraction
@@ -308,6 +316,13 @@ Also rebuild cached color blends and wave image specs."
 (defvar pro-tabs--icon-cache-by-mode (make-hash-table :test 'equal)
   "Internal cache for icons per (MODE . BACKEND).")
 
+(defvar pro-tabs--format-cache (make-hash-table :test 'equal)
+  "Short-term cache for formatted tab strings: key -> (STRING . TIMESTAMP).")
+
+(defun pro-tabs--clear-format-cache ()
+  "Clear formatted string cache."
+  (clrhash pro-tabs--format-cache))
+
 (defconst pro-tabs--wave-template
   [ "21111111111"
     "00111111111"
@@ -441,6 +456,7 @@ If precomputed, use quick lookup."
   (clrhash pro-tabs--icon-cache-by-buffer)
   (clrhash pro-tabs--icon-cache-by-mode)
   (clrhash pro-tabs--color-blend-cache)
+  (pro-tabs--clear-format-cache)
   (setq pro-tabs--precalculated-waves nil))
 
 (defun pro-tabs--wave-left (face1 face2 &optional height)
@@ -482,9 +498,8 @@ Silences messages during provider calls and protects against provider errors."
 ;; -------------------------------------------------------------------
 ;; Unified format
 ;; -------------------------------------------------------------------
-(defun pro-tabs--format (backend item &optional _index)
-  "Return formatted tab for BACKEND.
-BACKEND ∈ {'tab-bar,'tab-line}.  ITEM is alist(tab) or buffer."
+(defun pro-tabs--format-internal (backend item &optional _index)
+  "Pure formatter used by the caching wrapper."
   (pcase backend
     ('tab-bar
      (let* ((current? (eq (car item) 'current-tab))
@@ -492,10 +507,14 @@ BACKEND ∈ {'tab-bar,'tab-line}.  ITEM is alist(tab) or buffer."
             (face     (if current? 'pro-tabs-active-face 'pro-tabs-inactive-face))
             (icon     (pro-tabs--icon (get-buffer bufname) 'tab-bar))
             (h        pro-tabs-tab-bar-height)
-            (wave-r   (propertize " " 'display
-                                  (pro-tabs--wave-right face 'tab-bar (+ 1 h))))
-            (wave-l   (propertize " " 'display
-                                  (pro-tabs--wave-left 'tab-bar face (+ 1 h))))
+            (wave-r   (if pro-tabs-enable-waves
+                          (propertize " " 'display
+                                      (pro-tabs--wave-right face 'tab-bar (+ 1 h)))
+                        " "))
+            (wave-l   (if pro-tabs-enable-waves
+                          (propertize " " 'display
+                                      (pro-tabs--wave-left 'tab-bar face (+ 1 h)))
+                        " "))
             (name     (pro-tabs--shorten bufname pro-tabs-max-name-length))
             (txt      (concat wave-r (or icon "") " " name wave-l)))
        (add-face-text-property 0 (length txt) face t txt) txt))
@@ -506,12 +525,40 @@ BACKEND ∈ {'tab-bar,'tab-line}.  ITEM is alist(tab) or buffer."
             (face     (if current? 'pro-tabs-active-face 'pro-tabs-inactive-face))
             (h        pro-tabs-tab-line-height)
             (icon     (pro-tabs--icon buffer 'tab-line))
-            (wave-r   (propertize " " 'display
-                                  (pro-tabs--wave-right 'tab-line face (+ 1 h))))
-            (wave-l   (propertize " " 'display
-                                  (pro-tabs--wave-left face 'tab-line (+ 1 h))))
+            (wave-r   (if pro-tabs-enable-waves
+                          (propertize " " 'display
+                                      (pro-tabs--wave-right 'tab-line face (+ 1 h)))
+                        " "))
+            (wave-l   (if pro-tabs-enable-waves
+                          (propertize " " 'display
+                                      (pro-tabs--wave-left face 'tab-line (+ 1 h)))
+                        " "))
             (txt      (concat wave-r (or icon "") " " (buffer-name buffer) wave-l)))
        (add-face-text-property 0 (length txt) face t txt) txt))))
+
+(defun pro-tabs--format (backend item &optional _index)
+  "Return formatted tab for BACKEND with short-term caching.
+BACKEND ∈ {'tab-bar,'tab-line}.  ITEM is alist(tab) or buffer."
+  (let* ((now (float-time))
+         (key (if (eq backend 'tab-bar)
+                  (let* ((current? (eq (car item) 'current-tab))
+                         (bufname (alist-get 'name item)))
+                    (list backend bufname current?
+                          pro-tabs-enable-icons pro-tabs-enable-waves
+                          pro-tabs-max-name-length pro-tabs-tab-bar-height))
+                (let* ((buffer item)
+                       (current? (eq buffer (window-buffer)))
+                       (bufname (buffer-name buffer)))
+                  (list backend bufname current?
+                        pro-tabs-enable-icons pro-tabs-enable-waves
+                        pro-tabs-max-name-length pro-tabs-tab-line-height))))
+         (cell (gethash key pro-tabs--format-cache))
+         (ts (cdr cell)))
+    (if (and cell (< (- now ts) pro-tabs-format-cache-ttl))
+        (car cell)
+      (let ((txt (pro-tabs--format-internal backend item _index)))
+        (puthash key (cons txt now) pro-tabs--format-cache)
+        txt))))
 
 (defun pro-tabs-format-tab-bar (tab idx)
   "Wrapper for =tab-bar-tab-name-format-function'."
@@ -633,6 +680,15 @@ BACKEND ∈ {'tab-bar,'tab-line}.  ITEM is alist(tab) or buffer."
   (interactive)
   (kill-this-buffer)
   (tab-close))
+
+;;;###autoload
+(defun pro-tabs-flush-caches ()
+  "Clear pro-tabs caches and refresh UI."
+  (interactive)
+  (pro-tabs--clear-caches)
+  (when (featurep 'tab-bar)
+    (ignore-errors (tab-bar--update-tab-bar-lines)))
+  (force-mode-line-update t))
 
 ;; Ensure tracking is active after load
 (pro-tabs--install-theme-tracking)

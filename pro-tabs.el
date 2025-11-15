@@ -73,6 +73,18 @@ existing ones."
   "Render wave separators. Disable to reduce CPU usage in heavy redisplay."
   :type 'boolean :group 'pro-tabs)
 
+(defcustom pro-tabs-debug-logging nil
+  "Enable verbose debug logging for pro-tabs to *Messages*."
+  :type 'boolean :group 'pro-tabs)
+
+(defun pro-tabs--log (level fmt &rest args)
+  "Log a debug MESSAGE when `pro-tabs-debug-logging' is non-nil.
+LEVEL is a symbol like 'trace, 'info, 'warn, 'error."
+  (when pro-tabs-debug-logging
+    (ignore-errors
+      (let ((txt (apply #'format fmt args)))
+        (message "pro-tabs[%s] %s" (symbol-name level) txt)))))
+
 (defcustom pro-tabs-tab-line-wave-threshold 40
   "When the number of tab-line tabs in a window exceeds this value, wave separators are disabled for tab-line to reduce redisplay cost."
   :type 'integer :group 'pro-tabs)
@@ -619,8 +631,18 @@ BACKEND ∈ {'tab-bar,'tab-line}. ITEM is alist(tab) or buffer."
   (pro-tabs--format 'tab-bar tab idx))
 
 (defun pro-tabs-format-tab-line (buffer &optional _buffers)
-  "Wrapper for =tab-line-tab-name-function'."
-  (pro-tabs--format 'tab-line buffer))
+  "Wrapper for =tab-line-tab-name-function'. Adds diagnostics."
+  (let ((win (or (get-buffer-window buffer t) (selected-window))))
+    (pro-tabs--log 'trace "format-tab-line: buf=%s win=%s selected-win=%s"
+                   (and buffer (buffer-name buffer)) win (selected-window))
+    (condition-case err
+        (pro-tabs--format 'tab-line buffer)
+      (error
+       (pro-tabs--log 'error "format-tab-line error: %S (buf=%s win=%s)"
+                      err (and buffer (buffer-name buffer)) win)
+       ;; Fallback to plain buffer name to keep tab-line visible even on errors
+       (let ((nm (buffer-name buffer)))
+         (propertize (or nm "<nil>") 'face 'warning))))))
 
 ;; -------------------------------------------------------------------
 ;; Fast tab list for tab-line (no seq, per-window cache, event-driven)
@@ -631,16 +653,20 @@ BACKEND ∈ {'tab-bar,'tab-line}. ITEM is alist(tab) or buffer."
       (and (fboundp 'provided-mode-derived-p)
            (provided-mode-derived-p m1 m2))))
 
-(defun pro-tabs-tabs-function-fast ()
-  "Return buffers for tab-line in current window, cached per generation.
+(defun pro-tabs-tabs-function-fast (&optional window)
+  "Return buffers for tab-line in WINDOW, cached per generation.
 Mimics `tab-line-tabs-mode-buffers' but avoids seq/sort/uniq on redisplay."
-  (let* ((win (selected-window))
+  (let* ((win (or window (selected-window)))
          (curr (window-buffer win))
          (curr-mode (buffer-local-value 'major-mode curr))
          (gen pro-tabs--generation)
          (cache (window-parameter win 'pro-tabs--tabs-cache)))
+    (pro-tabs--log 'trace "tabs-fn: win=%s gen=%s curr=%s mode=%s cache=%s"
+                   win gen curr curr-mode (and cache t))
     (if (and cache (eq (plist-get cache :gen) gen))
-        (plist-get cache :tabs)
+        (let* ((tabs (plist-get cache :tabs)))
+          (pro-tabs--log 'trace "tabs-fn: cache-hit win=%s tabs=%d" win (length tabs))
+          tabs)
       (let ((tabs nil) (count 0))
         (dolist (b (buffer-list))
           (let ((name (buffer-name b)))
@@ -657,6 +683,8 @@ Mimics `tab-line-tabs-mode-buffers' but avoids seq/sort/uniq on redisplay."
          (and (numberp pro-tabs-tab-line-wave-threshold)
               (> pro-tabs-tab-line-wave-threshold 0)
               (> count pro-tabs-tab-line-wave-threshold)))
+        (pro-tabs--log 'trace "tabs-fn: built win=%s count=%d many=%s"
+                       win count (window-parameter win 'pro-tabs--tab-line-many))
         (set-window-parameter win 'pro-tabs--tabs-cache (list :gen gen :tabs tabs))
         tabs))))
 
@@ -669,6 +697,42 @@ Accept any calling convention; extract WINDOW from ARGS when present."
 ;; -------------------------------------------------------------------
 ;; Minor mode (side-effects live here)
 ;; -------------------------------------------------------------------
+
+(defun pro-tabs--advice-tab-line-format (orig-fun &rest args)
+  "Advice for `tab-line-format' to log state and catch errors."
+  (let* ((cache (and (boundp 'tab-line-cache) tab-line-cache))
+         (key   (and (boundp 'tab-line-cache-key-function) tab-line-cache-key-function))
+         (tabsf (and (boundp 'tab-line-tabs-function) tab-line-tabs-function))
+         (namef (and (boundp 'tab-line-tab-name-function) tab-line-tab-name-function))
+         (fmtv  (and (boundp 'tab-line-format) tab-line-format)))
+    (pro-tabs--log 'trace "tab-line-format: tabs-fn=%S name-fn=%S cache=%S key=%S var=%S"
+                   tabsf namef cache key fmtv)
+    ;; Deep diagnostics: try calling tabs/name functions ourselves to pinpoint failures.
+    (when pro-tabs-debug-logging
+      (let* ((win (selected-window))
+             (tabs (condition-case err
+                       (and (functionp tabsf) (funcall tabsf win))
+                     (error (pro-tabs--log 'error "tabs-fn call failed: %S" err) nil))))
+        (pro-tabs--log 'trace "tab-line-format: pre-check tabs=%s" (and tabs (length tabs)))
+        (when (and tabs (functionp namef))
+          (let ((n 0))
+            (dolist (b tabs)
+              (when (< n 3)
+                (condition-case err
+                    (let ((s (funcall namef b tabs)))
+                      (pro-tabs--log 'trace "tab-line-format: name ok buf=%s s-len=%s"
+                                     (and (bufferp b) (buffer-name b))
+                                     (and (stringp s) (length s))))
+                  (error
+                   (pro-tabs--log 'error "name-fn failed buf=%s: %S"
+                                  (and (bufferp b) (buffer-name b)) err)))
+                (setq n (1+ n)))))))))
+  (condition-case err
+      (apply orig-fun args)
+    (error
+     (pro-tabs--log 'error "tab-line-format failed: %S" err)
+     ;; Keep tab-line from exploding redisplay:
+     nil)))
 (defvar pro-tabs--saved-vars nil)      ; alist (sym . value)
 
 (defun pro-tabs--save (var)
@@ -722,11 +786,16 @@ Accept any calling convention; extract WINDOW from ARGS when present."
         (when (boundp 'tab-line-close-button-show) (setq tab-line-close-button-show nil))
         (when (boundp 'tab-line-separator)        (setq tab-line-separator ""))
         (when (boundp 'tab-line-switch-cycling)   (setq tab-line-switch-cycling t))
-        (when (boundp 'tab-line-tabs-function)    (setq tab-line-tabs-function #'pro-tabs-tabs-function-fast))
+        ;; Ensure defaults for all buffers and also set in the current buffer.
+        (when (boundp 'tab-line-tabs-function)
+          (setq-default tab-line-tabs-function #'pro-tabs-tabs-function-fast)
+          (setq tab-line-tabs-function #'pro-tabs-tabs-function-fast))
         (when (boundp 'tab-line-tab-name-function)
+          (setq-default tab-line-tab-name-function #'pro-tabs-format-tab-line)
           (setq tab-line-tab-name-function #'pro-tabs-format-tab-line))
+        ;; Disable built-in tab-line cache; key function set to ignore to avoid funcall on nil.
         (when (boundp 'tab-line-cache) (setq tab-line-cache nil))
-        (when (boundp 'tab-line-cache-key-function) (setq tab-line-cache-key-function nil))
+        (when (boundp 'tab-line-cache-key-function) (setq tab-line-cache-key-function #'ignore))
 
         ;; faces
         (pro-tabs--inherit-builtins)
@@ -735,6 +804,17 @@ Accept any calling convention; extract WINDOW from ARGS when present."
         (add-hook 'buffer-list-update-hook #'pro-tabs--on-buffer-list-update)
         (add-hook 'window-selection-change-functions #'pro-tabs--on-window-selectionchange)
         (add-hook 'window-configuration-change-hook #'pro-tabs--on-window-config-change)
+
+        ;; diagnostics: wrap tab-line-format to capture state during redisplay
+        (when (fboundp 'tab-line-format)
+          (ignore-errors
+            (advice-add 'tab-line-format :around #'pro-tabs--advice-tab-line-format)))
+
+        (pro-tabs--log 'info "enable: tabs-fn=%S name-fn=%S cache=%S key=%S format=%S"
+                       tab-line-tabs-function tab-line-tab-name-function
+                       (and (boundp 'tab-line-cache) tab-line-cache)
+                       (and (boundp 'tab-line-cache-key-function) tab-line-cache-key-function)
+                       tab-line-format)
 
         ;; s-0 … s-9 quick select (tab-bar only)
         (defvar pro-tabs-keymap (make-sparse-keymap)
@@ -773,6 +853,10 @@ Accept any calling convention; extract WINDOW from ARGS when present."
     (remove-hook 'window-selection-change-functions #'pro-tabs--on-window-selectionchange)
     (remove-hook 'window-configuration-change-hook #'pro-tabs--on-window-config-change)
 
+    (when (fboundp 'tab-line-format)
+      (ignore-errors
+        (advice-remove 'tab-line-format #'pro-tabs--advice-tab-line-format)))
+
     ;; Ensure tab-line stays sane if restored values are nil or invalid.
     ;; This prevents void-function nil during redisplay when pro-tabs is off.
     (when (and (boundp 'tab-line-tabs-function)
@@ -796,6 +880,34 @@ Accept any calling convention; extract WINDOW from ARGS when present."
 ;; -------------------------------------------------------------------
 ;; Handy commands
 ;; -------------------------------------------------------------------
+
+(defun pro-tabs-diagnose ()
+  "Print diagnostic info for tab-line/pro-tabs into *Messages*."
+  (interactive)
+  (require 'tab-line)
+  (let* ((win (selected-window))
+         (tlm (and (boundp 'tab-line-mode) tab-line-mode))
+         (gtlm (and (boundp 'global-tab-line-mode) global-tab-line-mode)))
+    (pro-tabs--log 'info "Diag: tab-line-mode=%s global=%s" tlm gtlm)
+    (pro-tabs--log 'info "Diag: tabs-fn=%S name-fn=%S cache=%S key=%S format=%S fboundp(format)=%s"
+                   (and (boundp 'tab-line-tabs-function) tab-line-tabs-function)
+                   (and (boundp 'tab-line-tab-name-function) tab-line-tab-name-function)
+                   (and (boundp 'tab-line-cache) tab-line-cache)
+                   (and (boundp 'tab-line-cache-key-function) tab-line-cache-key-function)
+                   (and (boundp 'tab-line-format) tab-line-format)
+                   (fboundp 'tab-line-format))
+    (condition-case err
+        (let* ((fn tab-line-tabs-function)
+               (tabs (if (functionp fn)
+                         (funcall fn win)
+                       (progn (pro-tabs--log 'error "Diag: tabs-function is not a function: %S" fn) nil))))
+          (pro-tabs--log 'info "Diag: tabs-function returned %s buffers" (length tabs)))
+      (error (pro-tabs--log 'error "Diag: tabs-function error: %S" err)))
+    (condition-case err
+        (when (fboundp 'tab-line-format)
+          (let ((res (tab-line-format)))
+            (pro-tabs--log 'info "Diag: (tab-line-format) returned type=%s" (type-of res))))
+      (error (pro-tabs--log 'error "Diag: tab-line-format error: %S" err)))))
 ;;;###autoload
 (defun pro-tabs-open-new-tab ()
   "Open new tab to the right; if =dashboard-open' exists, call it."

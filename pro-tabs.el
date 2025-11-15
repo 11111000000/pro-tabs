@@ -73,9 +73,16 @@ existing ones."
   "Render wave separators. Disable to reduce CPU usage in heavy redisplay."
   :type 'boolean :group 'pro-tabs)
 
-(defcustom pro-tabs-format-cache-ttl 0.75
-  "Seconds to cache formatted tab strings to reduce re-computation during redisplay."
-  :type 'number :group 'pro-tabs)
+(defcustom pro-tabs-tab-line-wave-threshold 40
+  "When the number of tab-line tabs in a window exceeds this value, wave separators are disabled for tab-line to reduce redisplay cost."
+  :type 'integer :group 'pro-tabs)
+
+(defcustom pro-tabs-tab-line-icons-threshold 60
+  "When the number of tab-line tabs in a window exceeds this value, icons are disabled for tab-line to reduce redisplay cost."
+  :type 'integer :group 'pro-tabs)
+
+(defvar pro-tabs--generation 0
+  "Monotonic generation counter for event-driven cache invalidation.")
 
 ;; -------------------------------------------------------------------
 ;; Icon provider abstraction
@@ -310,6 +317,9 @@ Also rebuild cached color blends and wave image specs."
 (defvar pro-tabs--wave-image-cache (make-hash-table :test 'equal)
   "Internal cache for wave image display specs. Keys are (DIR H C0 C1 MIX).")
 
+(defvar pro-tabs--wave-token-cache (make-hash-table :test 'equal)
+  "Cache of pre-propertized single-space strings for wave display specs.")
+
 (defvar pro-tabs--icon-cache-by-buffer (make-hash-table :test 'eq :weakness 'key)
   "Internal cache for icons per buffer. Weak keys so dead buffers are collected.")
 
@@ -322,6 +332,23 @@ Also rebuild cached color blends and wave image specs."
 (defun pro-tabs--clear-format-cache ()
   "Clear formatted string cache."
   (clrhash pro-tabs--format-cache))
+
+(defun pro-tabs--bump-generation ()
+  "Increment generation counter and clear format cache."
+  (setq pro-tabs--generation (1+ pro-tabs--generation))
+  (pro-tabs--clear-format-cache))
+
+(defun pro-tabs--on-buffer-list-update (&rest _)
+  "Hook: buffer list changed."
+  (pro-tabs--bump-generation))
+
+(defun pro-tabs--on-window-selectionchange (&rest _)
+  "Hook: selected window changed."
+  (pro-tabs--bump-generation))
+
+(defun pro-tabs--on-window-config-change (&rest _)
+  "Hook: window configuration changed."
+  (pro-tabs--bump-generation))
 
 (defconst pro-tabs--wave-template
   [ "21111111111"
@@ -453,6 +480,7 @@ If precomputed, use quick lookup."
 (defun pro-tabs--clear-caches ()
   "Clear internal caches used by pro-tabs rendering."
   (clrhash pro-tabs--wave-image-cache)
+  (clrhash pro-tabs--wave-token-cache)
   (clrhash pro-tabs--icon-cache-by-buffer)
   (clrhash pro-tabs--icon-cache-by-mode)
   (clrhash pro-tabs--color-blend-cache)
@@ -466,6 +494,28 @@ If precomputed, use quick lookup."
 (defun pro-tabs--wave-right (face1 face2 &optional height)
   "Return right wave XPM separator (mirror of left, FOR TAB-BAR)."
   (pro-tabs--wave-image-spec 'right face1 face2 height))
+
+(defun pro-tabs--wave-token-left (face1 face2 &optional height)
+  "Return cached pre-propertized token (single space) for left wave."
+  (let* ((h (or height (frame-char-height)))
+         (key (list 'left face1 face2 h))
+         (tok (gethash key pro-tabs--wave-token-cache)))
+    (or tok
+        (let* ((spec (pro-tabs--wave-left face1 face2 h))
+               (s (propertize " " 'display spec)))
+          (puthash key s pro-tabs--wave-token-cache)
+          s))))
+
+(defun pro-tabs--wave-token-right (face1 face2 &optional height)
+  "Return cached pre-propertized token (single space) for right wave."
+  (let* ((h (or height (frame-char-height)))
+         (key (list 'right face1 face2 h))
+         (tok (gethash key pro-tabs--wave-token-cache)))
+    (or tok
+        (let* ((spec (pro-tabs--wave-right face1 face2 h))
+               (s (propertize " " 'display spec)))
+          (puthash key s pro-tabs--wave-token-cache)
+          s))))
 
 (defun pro-tabs--icon (buffer-or-mode backend)
   "Return cached icon for BUFFER-OR-MODE and BACKEND.
@@ -505,60 +555,64 @@ Silences messages during provider calls and protects against provider errors."
      (let* ((current? (eq (car item) 'current-tab))
             (bufname  (substring-no-properties (alist-get 'name item)))
             (face     (if current? 'pro-tabs-active-face 'pro-tabs-inactive-face))
-            (icon     (pro-tabs--icon (get-buffer bufname) 'tab-bar))
             (h        pro-tabs-tab-bar-height)
+            (icon     (pro-tabs--icon (get-buffer bufname) 'tab-bar))
             (wave-r   (if pro-tabs-enable-waves
-                          (propertize " " 'display
-                                      (pro-tabs--wave-right face 'tab-bar (+ 1 h)))
+                          (pro-tabs--wave-token-right face 'tab-bar (+ 1 h))
                         " "))
             (wave-l   (if pro-tabs-enable-waves
-                          (propertize " " 'display
-                                      (pro-tabs--wave-left 'tab-bar face (+ 1 h)))
+                          (pro-tabs--wave-token-left 'tab-bar face (+ 1 h))
                         " "))
             (name     (pro-tabs--shorten bufname pro-tabs-max-name-length))
             (txt      (concat wave-r (or icon "") " " name wave-l)))
        (add-face-text-property 0 (length txt) face t txt) txt))
 
     (_                                  ; tab-line
-     (let* ((buffer   item)
-            (current? (eq buffer (window-buffer)))
-            (face     (if current? 'pro-tabs-active-face 'pro-tabs-inactive-face))
-            (h        pro-tabs-tab-line-height)
-            (icon     (pro-tabs--icon buffer 'tab-line))
-            (wave-r   (if pro-tabs-enable-waves
-                          (propertize " " 'display
-                                      (pro-tabs--wave-right 'tab-line face (+ 1 h)))
-                        " "))
-            (wave-l   (if pro-tabs-enable-waves
-                          (propertize " " 'display
-                                      (pro-tabs--wave-left face 'tab-line (+ 1 h)))
-                        " "))
-            (txt      (concat wave-r (or icon "") " " (buffer-name buffer) wave-l)))
+     (let* ((buffer    item)
+            (win       (selected-window))
+            (count     (or (window-parameter win 'pro-tabs--tab-line-count) 0))
+            (many      (or (window-parameter win 'pro-tabs--tab-line-many) nil))
+            (current?  (eq buffer (window-buffer win)))
+            (face      (if current? 'pro-tabs-active-face 'pro-tabs-inactive-face))
+            (h         pro-tabs-tab-line-height)
+            (waves?    (and pro-tabs-enable-waves (not many)))
+            (icons?    (and pro-tabs-enable-icons
+                            (or (not (numberp pro-tabs-tab-line-icons-threshold))
+                                (<= pro-tabs-tab-line-icons-threshold 0)
+                                (< count pro-tabs-tab-line-icons-threshold))))
+            (icon      (and icons? (pro-tabs--icon buffer 'tab-line)))
+            (wave-r    (if waves?
+                           (pro-tabs--wave-token-right 'tab-line face (+ 1 h))
+                         " "))
+            (wave-l    (if waves?
+                           (pro-tabs--wave-token-left face 'tab-line (+ 1 h))
+                         " "))
+            (name      (pro-tabs--shorten (buffer-name buffer) pro-tabs-max-name-length))
+            (txt       (concat wave-r (or icon "") " " name wave-l)))
        (add-face-text-property 0 (length txt) face t txt) txt))))
 
 (defun pro-tabs--format (backend item &optional _index)
-  "Return formatted tab for BACKEND with short-term caching.
-BACKEND ∈ {'tab-bar,'tab-line}.  ITEM is alist(tab) or buffer."
-  (let* ((now (float-time))
-         (key (if (eq backend 'tab-bar)
+  "Return formatted tab for BACKEND with event-driven caching.
+BACKEND ∈ {'tab-bar,'tab-line}. ITEM is alist(tab) or buffer."
+  (let* ((key (if (eq backend 'tab-bar)
                   (let* ((current? (eq (car item) 'current-tab))
                          (bufname (alist-get 'name item)))
-                    (list backend bufname current?
-                          pro-tabs-enable-icons pro-tabs-enable-waves
-                          pro-tabs-max-name-length pro-tabs-tab-bar-height))
+                    (vector backend bufname current?
+                            pro-tabs-enable-icons pro-tabs-enable-waves
+                            pro-tabs-max-name-length pro-tabs-tab-bar-height))
                 (let* ((buffer item)
-                       (current? (eq buffer (window-buffer)))
-                       (bufname (buffer-name buffer)))
-                  (list backend bufname current?
-                        pro-tabs-enable-icons pro-tabs-enable-waves
-                        pro-tabs-max-name-length pro-tabs-tab-line-height))))
-         (cell (gethash key pro-tabs--format-cache))
-         (ts (cdr cell)))
-    (if (and cell (< (- now ts) pro-tabs-format-cache-ttl))
-        (car cell)
-      (let ((txt (pro-tabs--format-internal backend item _index)))
-        (puthash key (cons txt now) pro-tabs--format-cache)
-        txt))))
+                       (win (selected-window))
+                       (current? (eq buffer (window-buffer win)))
+                       (bufname (buffer-name buffer))
+                       (many (or (window-parameter win 'pro-tabs--tab-line-many) nil)))
+                  (vector backend win bufname current? many
+                          pro-tabs-enable-icons pro-tabs-enable-waves
+                          pro-tabs-max-name-length pro-tabs-tab-line-height))))
+         (val (gethash key pro-tabs--format-cache)))
+    (or val
+        (let ((txt (pro-tabs--format-internal backend item _index)))
+          (puthash key txt pro-tabs--format-cache)
+          txt))))
 
 (defun pro-tabs-format-tab-bar (tab idx)
   "Wrapper for =tab-bar-tab-name-format-function'."
@@ -567,6 +621,48 @@ BACKEND ∈ {'tab-bar,'tab-line}.  ITEM is alist(tab) or buffer."
 (defun pro-tabs-format-tab-line (buffer &optional _buffers)
   "Wrapper for =tab-line-tab-name-function'."
   (pro-tabs--format 'tab-line buffer))
+
+;; -------------------------------------------------------------------
+;; Fast tab list for tab-line (no seq, per-window cache, event-driven)
+;; -------------------------------------------------------------------
+(defun pro-tabs--same-family-mode-p (m1 m2)
+  "Return non-nil if major mode M1 is M2 or derived from it."
+  (or (eq m1 m2)
+      (and (fboundp 'provided-mode-derived-p)
+           (provided-mode-derived-p m1 m2))))
+
+(defun pro-tabs-tabs-function-fast ()
+  "Return buffers for tab-line in current window, cached per generation.
+Mimics `tab-line-tabs-mode-buffers' but avoids seq/sort/uniq on redisplay."
+  (let* ((win (selected-window))
+         (curr (window-buffer win))
+         (curr-mode (buffer-local-value 'major-mode curr))
+         (gen pro-tabs--generation)
+         (cache (window-parameter win 'pro-tabs--tabs-cache)))
+    (if (and cache (eq (plist-get cache :gen) gen))
+        (plist-get cache :tabs)
+      (let ((tabs nil) (count 0))
+        (dolist (b (buffer-list))
+          (let ((name (buffer-name b)))
+            (when (and name (> (length name) 0)
+                       (not (eq (aref name 0) ?\s)))
+              (let ((mm (buffer-local-value 'major-mode b)))
+                (when (pro-tabs--same-family-mode-p mm curr-mode)
+                  (push b tabs)
+                  (setq count (1+ count)))))))
+        (setq tabs (nreverse tabs))
+        (set-window-parameter win 'pro-tabs--tab-line-count count)
+        (set-window-parameter
+         win 'pro-tabs--tab-line-many
+         (and (numberp pro-tabs-tab-line-wave-threshold)
+              (> pro-tabs-tab-line-wave-threshold 0)
+              (> count pro-tabs-tab-line-wave-threshold)))
+        (set-window-parameter win 'pro-tabs--tabs-cache (list :gen gen :tabs tabs))
+        tabs))))
+
+(defun pro-tabs--tab-line-cache-key ()
+  "Key for Emacs 29+ tab-line cache; stable until generation or window changes."
+  (vector pro-tabs--generation (selected-window)))
 
 ;; -------------------------------------------------------------------
 ;; Minor mode (side-effects live here)
@@ -595,7 +691,8 @@ BACKEND ∈ {'tab-bar,'tab-line}.  ITEM is alist(tab) or buffer."
                                              tab-bar-tab-name-format-function
                                              tab-line-new-button-show tab-line-close-button-show
                                              tab-line-separator   tab-line-switch-cycling
-                                             tab-line-tabs-function tab-line-tab-name-function))
+                                             tab-line-tabs-function tab-line-tab-name-function
+                                             tab-line-cache tab-line-cache-key-function))
           (when (boundp v) (pro-tabs--save v)))
 
         (setq tab-bar-new-button-show nil
@@ -623,12 +720,19 @@ BACKEND ∈ {'tab-bar,'tab-line}.  ITEM is alist(tab) or buffer."
         (when (boundp 'tab-line-close-button-show) (setq tab-line-close-button-show nil))
         (when (boundp 'tab-line-separator)        (setq tab-line-separator ""))
         (when (boundp 'tab-line-switch-cycling)   (setq tab-line-switch-cycling t))
-        (when (boundp 'tab-line-tabs-function)    (setq tab-line-tabs-function 'tab-line-tabs-mode-buffers))
+        (when (boundp 'tab-line-tabs-function)    (setq tab-line-tabs-function #'pro-tabs-tabs-function-fast))
         (when (boundp 'tab-line-tab-name-function)
           (setq tab-line-tab-name-function #'pro-tabs-format-tab-line))
+        (when (boundp 'tab-line-cache) (setq tab-line-cache t))
+        (when (boundp 'tab-line-cache-key-function) (setq tab-line-cache-key-function #'pro-tabs--tab-line-cache-key))
 
         ;; faces
         (pro-tabs--inherit-builtins)
+
+        ;; event-driven cache invalidation
+        (add-hook 'buffer-list-update-hook #'pro-tabs--on-buffer-list-update)
+        (add-hook 'window-selection-change-functions #'pro-tabs--on-window-selectionchange)
+        (add-hook 'window-configuration-change-hook #'pro-tabs--on-window-config-change)
 
         ;; s-0 … s-9 quick select (tab-bar only)
         (defvar pro-tabs-keymap (make-sparse-keymap)
@@ -662,7 +766,10 @@ BACKEND ∈ {'tab-bar,'tab-line}.  ITEM is alist(tab) or buffer."
       (with-selected-frame fr
         (tab-bar-mode -1)))
     (remove-hook 'after-make-frame-functions
-                 #'pro-tabs--enable-tab-bar-on-frame)))
+                 #'pro-tabs--enable-tab-bar-on-frame)
+    (remove-hook 'buffer-list-update-hook #'pro-tabs--on-buffer-list-update)
+    (remove-hook 'window-selection-change-functions #'pro-tabs--on-window-selectionchange)
+    (remove-hook 'window-configuration-change-hook #'pro-tabs--on-window-config-change)))
 
 ;; -------------------------------------------------------------------
 ;; Handy commands

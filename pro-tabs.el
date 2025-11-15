@@ -660,9 +660,11 @@ Mimics `tab-line-tabs-mode-buffers' but avoids seq/sort/uniq on redisplay."
         (set-window-parameter win 'pro-tabs--tabs-cache (list :gen gen :tabs tabs))
         tabs))))
 
-(defun pro-tabs--tab-line-cache-key ()
-  "Key for Emacs 29+ tab-line cache; stable until generation or window changes."
-  (vector pro-tabs--generation (selected-window)))
+(defun pro-tabs--tab-line-cache-key (&rest args)
+  "Key for Emacs 29+ tab-line cache; stable until generation or window changes.
+Accept any calling convention; extract WINDOW from ARGS when present."
+  (let ((win (cl-some (lambda (x) (and (windowp x) x)) args)))
+    (list :gen pro-tabs--generation :win (or win (selected-window)))))
 
 ;; -------------------------------------------------------------------
 ;; Minor mode (side-effects live here)
@@ -723,8 +725,8 @@ Mimics `tab-line-tabs-mode-buffers' but avoids seq/sort/uniq on redisplay."
         (when (boundp 'tab-line-tabs-function)    (setq tab-line-tabs-function #'pro-tabs-tabs-function-fast))
         (when (boundp 'tab-line-tab-name-function)
           (setq tab-line-tab-name-function #'pro-tabs-format-tab-line))
-        (when (boundp 'tab-line-cache) (setq tab-line-cache t))
-        (when (boundp 'tab-line-cache-key-function) (setq tab-line-cache-key-function #'pro-tabs--tab-line-cache-key))
+        (when (boundp 'tab-line-cache) (setq tab-line-cache nil))
+        (when (boundp 'tab-line-cache-key-function) (setq tab-line-cache-key-function nil))
 
         ;; faces
         (pro-tabs--inherit-builtins)
@@ -787,6 +789,36 @@ Mimics `tab-line-tabs-mode-buffers' but avoids seq/sort/uniq on redisplay."
   (interactive)
   (kill-this-buffer)
   (tab-close))
+
+;;;###autoload
+(defun pro-tabs-repair-tab-line ()
+  "Repair tab-line when cache or functions are misconfigured.
+Disables built-in tab-line cache, restores default tab functions,
+clears pro-tabs window parameters, and restarts tab-line."
+  (interactive)
+  (let ((inhibit-redisplay t))
+    (tab-line-mode -1)
+    (tab-bar-mode -1)
+    (when (boundp 'tab-line-cache)
+      (setq tab-line-cache nil))
+    (when (boundp 'tab-line-cache-key-function)
+      (setq tab-line-cache-key-function nil))
+    (when (boundp 'tab-line-tabs-function)
+      (setq tab-line-tabs-function 'tab-line-tabs-window-buffers))
+    (when (boundp 'tab-line-tab-name-function)
+      (setq tab-line-tab-name-function 'tab-line-tab-name))
+    (setq-default tab-line-format 'tab-line-format)
+    (setq tab-line-format 'tab-line-format)
+    (walk-windows
+     (lambda (w)
+       (set-window-parameter w 'pro-tabs--tabs-cache nil)
+       (set-window-parameter w 'pro-tabs--tab-line-count nil)
+       (set-window-parameter w 'pro-tabs--tab-line-many nil))
+     'no-mini)
+    (force-mode-line-update t))
+  (tab-line-mode 1)
+  (when pro-tabs-mode
+    (pro-tabs-flush-caches)))
 
 ;;;###autoload
 (defun pro-tabs-flush-caches ()

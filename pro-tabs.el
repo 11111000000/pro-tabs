@@ -771,7 +771,27 @@ Accept any calling convention; extract WINDOW from ARGS when present."
                  #'pro-tabs--enable-tab-bar-on-frame)
     (remove-hook 'buffer-list-update-hook #'pro-tabs--on-buffer-list-update)
     (remove-hook 'window-selection-change-functions #'pro-tabs--on-window-selectionchange)
-    (remove-hook 'window-configuration-change-hook #'pro-tabs--on-window-config-change)))
+    (remove-hook 'window-configuration-change-hook #'pro-tabs--on-window-config-change)
+
+    ;; Ensure tab-line stays sane if restored values are nil or invalid.
+    ;; This prevents void-function nil during redisplay when pro-tabs is off.
+    (when (and (boundp 'tab-line-tabs-function)
+               (null tab-line-tabs-function))
+      (setq tab-line-tabs-function 'tab-line-tabs-window-buffers))
+    (when (and (boundp 'tab-line-tab-name-function)
+               (null tab-line-tab-name-function))
+      (setq tab-line-tab-name-function 'tab-line-tab-name))
+    (when (and (boundp 'tab-line-format)
+               (null tab-line-format))
+      (setq-default tab-line-format 'tab-line-format)
+      (setq tab-line-format 'tab-line-format))
+    ;; Disable built-in tab-line cache unless it is a proper alist and key is a function.
+    (when (boundp 'tab-line-cache)
+      (unless (listp tab-line-cache) (setq tab-line-cache nil)))
+    (when (boundp 'tab-line-cache-key-function)
+      (unless (functionp tab-line-cache-key-function)
+        (setq tab-line-cache-key-function nil)))
+    (force-mode-line-update t)))
 
 ;; -------------------------------------------------------------------
 ;; Handy commands
